@@ -1,6 +1,6 @@
 <!--
-  Lift Log version: 1.1.8
-  Maintenance note: Added directional slide transitions when navigating between workout dates.
+  Lift Log version: 1.2.2
+  Maintenance note: Simplified Settings version label to “Version: 1.2.2”.
 -->
 <!doctype html>
 <html lang="en">
@@ -104,6 +104,10 @@ input[type=color]{width:56px;height:36px;padding:2px;cursor:pointer}
   box-shadow: 0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1) !important;
 }
 .card h3{margin:0;font-size:16px;display:flex;align-items:center;justify-content:space-between}
+.drag-handle{border:0;background:transparent;color:var(--mute);font-size:21px;line-height:1;padding:3px 8px 3px 0;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
+.exercise-card.dragging{opacity:.45;transform:scale(.985);border-color:var(--acc)}
+.exercise-card.drop-target{border-top:3px solid var(--acc)}
+.exercise-card{touch-action:pan-y}
 .meta{color:var(--mute);font-size:13px;margin:2px 0 6px}
 .last{font-size:13px;color:var(--mute);background:var(--bg);border-radius:8px;padding:6px 8px;margin-bottom:8px}
 .up{display:block;margin-top:4px;color:var(--ok);font-weight:600}
@@ -630,10 +634,10 @@ function vLog(){
     let up='';
     if(lr&&hi){const ss=lr.sets.filter(s=>num(s.w)!==null);if(ss.length>=e.sets&&ss.every(s=>(num(s.r)||0)>=hi))up='<span class="up">↑ Hit upper rep limit last time. Try heavier weight!</span>'}
     
-    h+=`<div class="card">
+    h+=`<div class="card exercise-card" data-ex-card="${e.id}">
       <h3>
         <span>${esc(e.name)}</span>
-        <button class="btn small" data-act="swapex" data-id="${e.id}" style="font-size:11px">🔄 Swap</button>
+        <button type="button" class="drag-handle" data-drag-handle="${e.id}" aria-label="Drag to reorder exercise" title="Drag to reorder">⠿</button>
       </h3>
       <div class="meta">${e.sets} sets × ${esc(e.range)} reps</div>`;
     if(lr)h+=`<div class="last">Last (${fmt(lb)}): ${esc(setsTxt(lr))}${up}</div>`;
@@ -772,6 +776,8 @@ function vSet(){
     <div id="bkmsg" class="meta" style="margin-top:6px"></div>
   </div>`;
 
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.2.2</div></div>`;
+
   return h;
 }
 
@@ -852,6 +858,54 @@ function parseTXTLogs(text) {
   });
   return logs;
 }
+
+// Vertical drag-and-drop to reorder exercises in Today's Workout.
+let exerciseDrag = null;
+document.addEventListener('pointerdown', e => {
+  const handle = e.target.closest('[data-drag-handle]');
+  if (!handle || ui.tab !== 'today') return;
+  const card = handle.closest('[data-ex-card]');
+  if (!card) return;
+  exerciseDrag = {id: card.dataset.exCard, card, startY: e.clientY, moved: false};
+  try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+});
+document.addEventListener('pointermove', e => {
+  if (!exerciseDrag) return;
+  if (Math.abs(e.clientY - exerciseDrag.startY) > 5) exerciseDrag.moved = true;
+  if (!exerciseDrag.moved) return;
+  const cards = [...document.querySelectorAll('#app [data-ex-card]')];
+  cards.forEach(c => c.classList.remove('drop-target'));
+  const target = cards.find(c => {
+    if (c === exerciseDrag.card) return false;
+    const r = c.getBoundingClientRect();
+    return e.clientY >= r.top && e.clientY <= r.bottom;
+  });
+  if (target) {
+    target.classList.add('drop-target');
+    const r = target.getBoundingClientRect();
+    target.parentNode.insertBefore(exerciseDrag.card, e.clientY < r.top + r.height / 2 ? target : target.nextSibling);
+  }
+  exerciseDrag.card.classList.add('dragging');
+  e.preventDefault();
+}, {passive:false});
+function finishExerciseDrag() {
+  if (!exerciseDrag) return;
+  const moved = exerciseDrag.moved;
+  document.querySelectorAll('#app [data-ex-card]').forEach(c => c.classList.remove('dragging','drop-target'));
+  if (moved) {
+    const ids = [...document.querySelectorAll('#app [data-ex-card]')].map(c => c.dataset.exCard);
+    const day = getPlan()[ui.day];
+    const byId = new Map(day.ex.map(ex => [ex.id, ex]));
+    if (ids.length === day.ex.length && ids.every(id => byId.has(id))) {
+      day.ex = ids.map(id => byId.get(id));
+      saveState();
+      render();
+    }
+  }
+  exerciseDrag = null;
+}
+document.addEventListener('pointerup', finishExerciseDrag);
+document.addEventListener('pointercancel', finishExerciseDrag);
 
 document.addEventListener('click', e => {
   const btn = e.target.closest('[data-act]');
