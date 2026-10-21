@@ -1,5 +1,5 @@
 <!--
-  Lift Log version: 1.2.4
+  Lift Log version: 1.2.5
   Maintenance note: Added per-session exercise add/remove controls while preserving historical logs.
 -->
 <!doctype html>
@@ -288,6 +288,16 @@ function loadTheme(){
 }
 
 let S=loadState(), T=loadTheme();
+function normalizeLogNumbers(state){
+  Object.values(state.logs||{}).forEach(day=>Object.values(day||{}).forEach(record=>{
+    (record&&record.sets||[]).forEach(set=>{
+      if(!set) return;
+      if(set.w!=='' && set.w!==null && set.w!==undefined){const w=Number(set.w);set.w=Number.isFinite(w)&&w>=0?w:'';}
+      if(set.r!=='' && set.r!==null && set.r!==undefined){const r=Number(set.r);set.r=Number.isInteger(r)&&r>=0?r:'';}
+    });
+  }));
+}
+normalizeLogNumbers(S);
 function saveState(){try{localStorage.setItem(KEY,JSON.stringify(S));storageOK=true}catch(e){storageOK=false}warn()}
 function saveTheme(){try{localStorage.setItem(TKEY,JSON.stringify(T))}catch(e){}}
 function warn(){document.getElementById('warn').innerHTML=storageOK?'':'<div class="warn">Private mode active: data will not persist when closing page.</div>'}
@@ -657,8 +667,8 @@ function vLog(){
       const s=rec.sets[i]||{w:'',r:''},ls=lr&&(lr.sets[i]||lr.sets[lr.sets.length-1]);
       h+=`<div class="row">
         <span>Set ${i+1}</span>
-        <input inputmode="decimal" data-id="${e.id}" data-i="${i}" data-f="w" placeholder="${ls&&ls.w?esc(ls.w):'kg'}" value="${esc(s.w)}">
-        <input inputmode="numeric" data-id="${e.id}" data-i="${i}" data-f="r" placeholder="${ls&&ls.r?esc(ls.r):'reps'}" value="${esc(s.r)}">
+        <input type="number" inputmode="decimal" min="0" step="any" data-id="${e.id}" data-i="${i}" data-f="w" placeholder="${ls&&ls.w?esc(ls.w):'kg'}" value="${esc(s.w)}">
+        <input type="number" inputmode="numeric" min="0" step="1" data-id="${e.id}" data-i="${i}" data-f="r" placeholder="${ls&&ls.r?esc(ls.r):'reps'}" value="${esc(s.r)}">
       </div>`;
     }
     h+=`<div style="display:flex;gap:8px;margin-top:6px">
@@ -788,7 +798,7 @@ function vSet(){
     <div id="bkmsg" class="meta" style="margin-top:6px"></div>
   </div>`;
 
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.2.4</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.2.5</div></div>`;
 
   return h;
 }
@@ -824,7 +834,7 @@ function parseCSVLogs(text) {
     while (logs[date][exId].sets.length <= setIdx) {
       logs[date][exId].sets.push({ w: '', r: '' });
     }
-    logs[date][exId].sets[setIdx] = { w: weight, r: reps };
+    logs[date][exId].sets[setIdx] = { w: weight !== '' && Number.isFinite(Number(weight)) && Number(weight) >= 0 ? Number(weight) : '', r: reps !== '' && Number.isInteger(Number(reps)) && Number(reps) >= 0 ? Number(reps) : '' };
     if (note) logs[date][exId].note = note;
   }
   return logs;
@@ -849,8 +859,8 @@ function parseTXTLogs(text) {
         const match = line.match(/Set\s+(\d+):\s*([\d.]+)\s*kg\s*×\s*(\d+)\s*reps/i);
         if (match) {
           const setIdx = parseInt(match[1], 10) - 1;
-          const weight = match[2];
-          const reps = match[3];
+          const weight = Number(match[2]);
+          const reps = Number(match[3]);
 
           if (!logs[date]) logs[date] = {};
           if (!logs[date][currentExId]) logs[date][currentExId] = { sets: [], note: '' };
@@ -1145,7 +1155,15 @@ document.addEventListener('input', e => {
       S.logs[ui.date][id].sets.push({w:'', r:''});
     }
     
-    S.logs[ui.date][id].sets[idx][f] = el.value;
+    const raw = el.value.trim();
+    if(raw === ''){
+      S.logs[ui.date][id].sets[idx][f] = '';
+    } else {
+      const value = Number(raw);
+      const valid = Number.isFinite(value) && value >= 0 && (f === 'w' || Number.isInteger(value));
+      if(valid) S.logs[ui.date][id].sets[idx][f] = value;
+      else if(f === 'r') S.logs[ui.date][id].sets[idx][f] = '';
+    }
     saveState();
 
     if(f === 'r' && el.value){
@@ -1187,6 +1205,7 @@ document.addEventListener('change', e => {
           const o = JSON.parse(content);
           if(o.routines && o.logs){
             S = o;
+            normalizeLogNumbers(S);
             if(o.theme){ T = {...DEFT, ...o.theme}; saveTheme(); applyTheme(); }
           }
         } else if(file.name.endsWith('.csv') || content.includes(',')) {
