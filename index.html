@@ -1,6 +1,6 @@
 <!--
-  Lift Log version: 1.2.2
-  Maintenance note: Simplified Settings version label to “Version: 1.2.2”.
+  Lift Log version: 1.2.4
+  Maintenance note: Added per-session exercise add/remove controls while preserving historical logs.
 -->
 <!doctype html>
 <html lang="en">
@@ -105,9 +105,11 @@ input[type=color]{width:56px;height:36px;padding:2px;cursor:pointer}
 }
 .card h3{margin:0;font-size:16px;display:flex;align-items:center;justify-content:space-between}
 .drag-handle{border:0;background:transparent;color:var(--mute);font-size:21px;line-height:1;padding:3px 8px 3px 0;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
-.exercise-card.dragging{opacity:.45;transform:scale(.985);border-color:var(--acc)}
+.exercise-card.dragging{opacity:.72;transform:scale(.992);border-color:var(--acc);box-shadow:0 10px 28px rgba(0,0,0,.24);position:relative;z-index:2}
 .exercise-card.drop-target{border-top:3px solid var(--acc)}
-.exercise-card{touch-action:pan-y}
+.exercise-card{touch-action:pan-y;transition:opacity .16s ease,transform .16s ease,border-color .16s ease,box-shadow .16s ease}
+.drag-handle:active{cursor:grabbing}
+body.exercise-reordering{user-select:none;-webkit-user-select:none;cursor:grabbing;overscroll-behavior:contain}
 .meta{color:var(--mute);font-size:13px;margin:2px 0 6px}
 .last{font-size:13px;color:var(--mute);background:var(--bg);border-radius:8px;padding:6px 8px;margin-bottom:8px}
 .up{display:block;margin-top:4px;color:var(--ok);font-weight:600}
@@ -326,7 +328,16 @@ function lastBefore(id,date){const ds=Object.keys(S.logs).filter(d=>d<date&&S.lo
 function topW(r){return Math.max(...r.sets.map(s=>num(s.w)).filter(x=>x!==null))}
 function est1RM(r){return Math.max(...r.sets.map(s=>((num(s.w)||0)*(1+(num(s.r)||0)/30))))}
 function setsTxt(r){return r.sets.filter(s=>s&&num(s.w)!==null).map(s=>s.w+'×'+(s.r||'?')).join(', ')}
-function exList(){const o=[];getPlan().forEach(d=>d.ex.forEach(e=>o.push({...e,day:d.name})));return o}
+function exList(){
+  const o=[];
+  getPlan().forEach(d=>d.ex.forEach(e=>o.push({...e,day:d.name})));
+  const activeIds=new Set(o.map(e=>e.id));
+  Object.entries(S.archivedExercises||{}).forEach(([id,e])=>{
+    if(!activeIds.has(id) && Object.values(S.logs||{}).some(day=>day&&day[id]&&filled(day[id])))
+      o.push({...e,id,day:'Archived exercise'});
+  });
+  return o;
+}
 
 function calcStreak(){
   let streak=0, d=new Date();
@@ -622,7 +633,7 @@ function vLog(){
   const plan=getPlan();
   if(ui.day>=plan.length)ui.day=0;
   const d=plan[ui.day];
-  let h=`<div class="top"><button class="btn small" data-act="dt" data-v="-1">‹</button><input type="date" id="date" value="${ui.date}"><button class="btn small" data-act="dt" data-v="1">›</button><button class="btn small" data-act="today">Today</button></div>`;
+  let h=`<div class="top"><button class="btn small" data-act="dt" data-v="-1">‹</button><input type="date" id="date" value="${ui.date}"><button class="btn small" data-act="dt" data-v="1">›</button><button class="btn small" data-act="today">Today</button><button class="btn small acc" data-act="addexercise">+ Exercise</button></div>`;
   h+='<div class="tabs">'+plan.map((p,i)=>`<button class="${i===ui.day?'on':''}" data-act="day" data-v="${i}">${esc(p.name)}</button>`).join('')+'</div>';
   if(!d.ex.length)return h+'<div class="empty">Rest day scheduled! Take time to recover. ☕</div>';
   
@@ -637,7 +648,7 @@ function vLog(){
     h+=`<div class="card exercise-card" data-ex-card="${e.id}">
       <h3>
         <span>${esc(e.name)}</span>
-        <button type="button" class="drag-handle" data-drag-handle="${e.id}" aria-label="Drag to reorder exercise" title="Drag to reorder">⠿</button>
+        <span style="display:flex;align-items:center;gap:6px"><button type="button" class="btn small" data-act="removeexercise" data-id="${e.id}" aria-label="Remove ${esc(e.name)}" title="Remove exercise">Remove</button><button type="button" class="drag-handle" data-drag-handle="${e.id}" aria-label="Drag to reorder exercise" title="Drag to reorder">⠿</button></span>
       </h3>
       <div class="meta">${e.sets} sets × ${esc(e.range)} reps</div>`;
     if(lr)h+=`<div class="last">Last (${fmt(lb)}): ${esc(setsTxt(lr))}${up}</div>`;
@@ -683,7 +694,8 @@ function vProg(){
     ${renderStockChart(overallData,ui.homeGraphType||'line')}
   </div>`;
 
-  h+='<select id="psel" style="width:100%;margin-bottom:10px">'+getPlan().map(d=>`<optgroup label="${esc(d.name)}">`+d.ex.map(x=>`<option value="${x.id}"${x.id===ui.prog?' selected':''}>${esc(x.name)}</option>`).join('')+'</optgroup>').join('')+'</select>';
+  h+='<select id="psel" style="width:100%;margin-bottom:10px">'+getPlan().map(d=>`<optgroup label="${esc(d.name)}">`+d.ex.map(x=>`<option value="${x.id}"${x.id===ui.prog?' selected':''}>${esc(x.name)}</option>`).join('')+'</optgroup>').join('')+
+    (all.some(x=>x.day==='Archived exercise')?'<optgroup label="Archived exercises">'+all.filter(x=>x.day==='Archived exercise').map(x=>`<option value="${x.id}"${x.id===ui.prog?' selected':''}>${esc(x.name)}</option>`).join('')+'</optgroup>':'')+'</select>';
   
   const ds=Object.keys(S.logs).filter(d=>S.logs[d][e.id]&&filled(S.logs[d][e.id])).sort();
   if(!ds.length)return h+'<div class="empty">No sessions logged for this exercise yet.</div>';
@@ -776,7 +788,7 @@ function vSet(){
     <div id="bkmsg" class="meta" style="margin-top:6px"></div>
   </div>`;
 
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.2.2</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.2.4</div></div>`;
 
   return h;
 }
@@ -859,38 +871,80 @@ function parseTXTLogs(text) {
   return logs;
 }
 
-// Vertical drag-and-drop to reorder exercises in Today's Workout.
+// Vertical drag-and-drop with edge auto-scroll and smoother card feedback.
 let exerciseDrag = null;
-document.addEventListener('pointerdown', e => {
-  const handle = e.target.closest('[data-drag-handle]');
-  if (!handle || ui.tab !== 'today') return;
-  const card = handle.closest('[data-ex-card]');
-  if (!card) return;
-  exerciseDrag = {id: card.dataset.exCard, card, startY: e.clientY, moved: false};
-  try { handle.setPointerCapture(e.pointerId); } catch (_) {}
-});
-document.addEventListener('pointermove', e => {
+let exerciseAutoScroll = null;
+function reorderExerciseAt(y) {
   if (!exerciseDrag) return;
-  if (Math.abs(e.clientY - exerciseDrag.startY) > 5) exerciseDrag.moved = true;
-  if (!exerciseDrag.moved) return;
   const cards = [...document.querySelectorAll('#app [data-ex-card]')];
   cards.forEach(c => c.classList.remove('drop-target'));
   const target = cards.find(c => {
     if (c === exerciseDrag.card) return false;
     const r = c.getBoundingClientRect();
-    return e.clientY >= r.top && e.clientY <= r.bottom;
+    return y >= r.top && y <= r.bottom;
   });
   if (target) {
     target.classList.add('drop-target');
     const r = target.getBoundingClientRect();
-    target.parentNode.insertBefore(exerciseDrag.card, e.clientY < r.top + r.height / 2 ? target : target.nextSibling);
+    const before = y < r.top + r.height / 2;
+    if (before && exerciseDrag.card.nextElementSibling !== target) {
+      target.parentNode.insertBefore(exerciseDrag.card, target);
+    } else if (!before && target.nextElementSibling !== exerciseDrag.card) {
+      target.parentNode.insertBefore(exerciseDrag.card, target.nextSibling);
+    }
   }
-  exerciseDrag.card.classList.add('dragging');
+}
+function stopExerciseAutoScroll() {
+  if (exerciseAutoScroll !== null) {
+    clearInterval(exerciseAutoScroll);
+    exerciseAutoScroll = null;
+  }
+}
+document.addEventListener('pointerdown', e => {
+  const handle = e.target.closest('[data-drag-handle]');
+  if (!handle || ui.tab !== 'today' || e.button > 0) return;
+  const card = handle.closest('[data-ex-card]');
+  if (!card) return;
+  exerciseDrag = {id: card.dataset.exCard, card, startY: e.clientY, lastY: e.clientY, moved: false, pointerId: e.pointerId};
+  try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+});
+document.addEventListener('pointermove', e => {
+  if (!exerciseDrag || (exerciseDrag.pointerId !== undefined && e.pointerId !== exerciseDrag.pointerId)) return;
+  exerciseDrag.lastY = e.clientY;
+  if (Math.abs(e.clientY - exerciseDrag.startY) > 5) {
+    exerciseDrag.moved = true;
+    document.body.classList.add('exercise-reordering');
+    exerciseDrag.card.classList.add('dragging');
+  }
+  if (!exerciseDrag.moved) return;
+  reorderExerciseAt(e.clientY);
+  // Keep scrolling the page while the pointer rests near either viewport edge.
+  const edge = 88;
+  const y = e.clientY;
+  let speed = 0;
+  if (y < edge) speed = -Math.ceil((edge - y) / 5);
+  else if (y > window.innerHeight - edge) speed = Math.ceil((y - (window.innerHeight - edge)) / 5);
+  if (speed && exerciseAutoScroll === null) {
+    exerciseAutoScroll = setInterval(() => {
+      if (!exerciseDrag || !exerciseDrag.moved) return;
+      const py = exerciseDrag.lastY;
+      let step = 0;
+      if (py < edge) step = -Math.max(3, Math.ceil((edge - py) / 4));
+      else if (py > window.innerHeight - edge) step = Math.max(3, Math.ceil((py - (window.innerHeight - edge)) / 4));
+      if (step) {
+        window.scrollBy(0, step);
+        reorderExerciseAt(py);
+      } else stopExerciseAutoScroll();
+    }, 16);
+  } else if (!speed) stopExerciseAutoScroll();
   e.preventDefault();
 }, {passive:false});
-function finishExerciseDrag() {
+function finishExerciseDrag(e) {
   if (!exerciseDrag) return;
+  if (e && exerciseDrag.pointerId !== undefined && e.pointerId !== undefined && e.pointerId !== exerciseDrag.pointerId) return;
   const moved = exerciseDrag.moved;
+  stopExerciseAutoScroll();
+  document.body.classList.remove('exercise-reordering');
   document.querySelectorAll('#app [data-ex-card]').forEach(c => c.classList.remove('dragging','drop-target'));
   if (moved) {
     const ids = [...document.querySelectorAll('#app [data-ex-card]')].map(c => c.dataset.exCard);
@@ -906,6 +960,7 @@ function finishExerciseDrag() {
 }
 document.addEventListener('pointerup', finishExerciseDrag);
 document.addEventListener('pointercancel', finishExerciseDrag);
+window.addEventListener('blur', () => { if (exerciseDrag) finishExerciseDrag(); });
 
 document.addEventListener('click', e => {
   const btn = e.target.closest('[data-act]');
@@ -974,6 +1029,43 @@ document.addEventListener('click', e => {
   else if(a==='day'){
     ui.day = parseInt(v, 10);
     render();
+  }
+  else if(a==='addexercise'){
+    const name=prompt('Exercise name to add to this workout day:');
+    if(name!==null){
+      const clean=name.trim();
+      if(!clean){alert('Please enter an exercise name.');return;}
+      const day=getPlan()[ui.day];
+      if(day.ex.some(ex=>ex.name.toLowerCase()===clean.toLowerCase())){
+        alert('That exercise is already in this workout.');return;
+      }
+      const setsInput=prompt('How many working sets?','3');
+      if(setsInput===null)return;
+      const sets=parseInt(setsInput,10);
+      if(!Number.isInteger(sets)||sets<1||sets>20){alert('Enter a number of sets from 1 to 20.');return;}
+      const range=prompt('Target rep range (e.g. 8-12):','8-12');
+      if(range===null)return;
+      const cleanRange=range.trim()||'8-12';
+      day.ex.push({id:'custom_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),name:clean,sets,range:cleanRange});
+      saveState();
+      render();
+    }
+  }
+  else if(a==='removeexercise'){
+    const day=getPlan()[ui.day];
+    const ex=day.ex.find(item=>item.id===id);
+    if(ex&&confirm(`Remove "${ex.name}" from this workout routine? Past logs will be kept and remain available in Progress. This change affects future weeks too.`)){
+      const hasHistory=Object.values(S.logs||{}).some(log=>log&&log[id]&&filled(log[id]));
+      if(hasHistory){
+        if(!S.archivedExercises)S.archivedExercises={};
+        S.archivedExercises[id]={name:ex.name,sets:ex.sets,range:ex.range};
+      }
+      day.ex=day.ex.filter(item=>item.id!==id);
+      delete ui.extra[id];
+      if(ui.prog===id)ui.prog=null;
+      saveState();
+      render();
+    }
   }
   else if(a==='addset'){
     ui.extra[id] = (ui.extra[id] || 0) + 1;
