@@ -1,6 +1,6 @@
 <!--
-  Lift Log version: 1.1.5
-  Maintenance note: Updated storage calculation logic and streamlined settings panel without syntax truncation.
+  Lift Log version: 1.1.8
+  Maintenance note: Added directional slide transitions when navigating between workout dates.
 -->
 <!doctype html>
 <html lang="en">
@@ -44,6 +44,27 @@ body{
 }
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:10}
 main{max-width:720px;margin:0 auto;padding:4px 12px 100px;transition:opacity 0.2s ease, transform 0.2s ease}
+/* Recoverable error dialog */
+#error-box:empty{display:none}
+#error-box .error-overlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px}
+#error-box .error-card{width:min(100%,420px);background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:0 18px 60px #0008}
+#error-box .error-card h2{margin:0 0 8px;font-size:20px}
+#error-box .error-detail{font-size:12px;opacity:.8;white-space:pre-wrap;overflow-wrap:anywhere;max-height:100px;overflow:auto;margin:10px 0}
+/* Smooth, subtle entrance when switching app tabs */
+#app.tab-enter{animation:tabEnter 280ms cubic-bezier(.2,.75,.25,1) both;will-change:opacity,transform}
+/* Date navigation: older sessions move left; newer sessions move right. */
+#app.day-enter-older{animation:dayEnterOlder 260ms cubic-bezier(.2,.75,.25,1) both;will-change:opacity,transform}
+#app.day-enter-newer{animation:dayEnterNewer 260ms cubic-bezier(.2,.75,.25,1) both;will-change:opacity,transform}
+@keyframes dayEnterOlder{from{opacity:.55;transform:translateX(32px)}to{opacity:1;transform:translateX(0)}}
+@keyframes dayEnterNewer{from{opacity:.55;transform:translateX(-32px)}to{opacity:1;transform:translateX(0)}}
+@keyframes tabEnter{
+  from{opacity:0;transform:translateY(10px) scale(.995);filter:blur(2px)}
+  to{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}
+}
+@media (prefers-reduced-motion:reduce){
+  #app.tab-enter,#app.day-enter-older,#app.day-enter-newer{animation:none;will-change:auto}
+  *,*:before,*:after{scroll-behavior:auto!important;transition-duration:0.01ms!important;animation-duration:0.01ms!important;animation-iteration-count:1!important}
+}
 
 .bar{display:flex;align-items:center;justify-content:space-between;height:48px}
 .ttl{font-weight:700;font-size:17px}
@@ -206,6 +227,7 @@ svg{width:100%;height:auto;display:block}
 </div>
 
 <div id="pr-modal-box"></div>
+<div id="error-box" role="alertdialog" aria-live="assertive"></div>
 
 <script>
 const KEY='liftlog_v2', TKEY='liftlog_theme_v2';
@@ -290,6 +312,9 @@ const dayIdx=d=>getPlan().findIndex(p=>p.name.toLowerCase().includes(WD[new Date
 const dayFor=d=>Math.max(0,dayIdx(d));
 const now=new Date();
 const ui={tab:'home',date:iso(now),day:0,extra:{},homeMetric:'1rm',homeGraphType:T.homeGraphType||'line',progGraphType:T.progGraphType||'line',cm:{y:now.getFullYear(),m:now.getMonth()}};
+let lastRenderedTab=null;
+let lastRenderedDate=null;
+let lastRenderedDay=null;
 ui.day=dayFor(ui.date);
 const num=v=>{const n=parseFloat(v);return isNaN(n)?null:n};
 const filled=r=>r&&r.sets&&r.sets.some(s=>s&&num(s.w)!==null);
@@ -425,9 +450,22 @@ function showPRModal(w, r, rm){
 
 function render(){
   const t=ui.tab;
+  const tabChanged=lastRenderedTab!==t;
+  const wasLogTab=lastRenderedTab==='today'||lastRenderedTab==='log';
+  const isLogTab=t==='today'||t==='log';
+  const dateChanged=lastRenderedDate!==null&&lastRenderedDate!==ui.date;
+  const dayChanged=lastRenderedDay!==null&&lastRenderedDay!==ui.day;
+  let slideDirection=null;
+  if(wasLogTab&&isLogTab){
+    if(dayChanged) slideDirection=ui.day<lastRenderedDay?'older':'newer';
+    else if(dateChanged) slideDirection=ui.date<lastRenderedDate?'older':'newer';
+  }
+  lastRenderedTab=t;
+  lastRenderedDate=ui.date;
+  lastRenderedDay=ui.day;
   document.getElementById('back').style.visibility=(t==='home'||t==='today')?'hidden':'visible';
   document.getElementById('ttl').textContent={home:'Lift Log',today:'Today’s Workout',log:'Log Workout',cal:'Calendar',prog:'Progress',set:'Settings'}[t]||'Lift Log';
-  
+
   document.querySelectorAll('.bottom-nav button').forEach(b=>b.classList.remove('active'));
   const activeNav=document.getElementById('nav-'+(t==='log'?'today':t));
   if(activeNav) activeNav.classList.add('active');
@@ -435,14 +473,17 @@ function render(){
   applyTheme();
   warn();
   const app=document.getElementById('app');
-  app.style.opacity='0';
-  app.style.transform='translateY(4px)';
-  
-  setTimeout(()=>{
-    app.innerHTML={home:vHome,today:vLog,log:vLog,cal:vCal,prog:vProg,set:vSet}[t]();
-    app.style.opacity='1';
-    app.style.transform='translateY(0)';
-  },50);
+  app.innerHTML={home:vHome,today:vLog,log:vLog,cal:vCal,prog:vProg,set:vSet}[t]();
+
+  // Animate tab changes, or slide horizontally when changing dates within the log.
+  app.classList.remove('tab-enter','day-enter-older','day-enter-newer');
+  if(slideDirection){
+    void app.offsetWidth;
+    app.classList.add(slideDirection==='older'?'day-enter-older':'day-enter-newer');
+  } else if(tabChanged){
+    void app.offsetWidth;
+    app.classList.add('tab-enter');
+  }
 }
 
 function vHome(){
@@ -619,8 +660,26 @@ function vProg(){
   const all=exList();if(!all.length)return'<div class="empty">No exercises in active plan.</div>';
   if(!ui.prog||!all.find(e=>e.id===ui.prog))ui.prog=all[0].id;
   const e=all.find(x=>x.id===ui.prog);
-  
-  let h='<select id="psel" style="width:100%;margin-bottom:10px">'+getPlan().map(d=>`<optgroup label="${esc(d.name)}">`+d.ex.map(x=>`<option value="${x.id}"${x.id===ui.prog?' selected':''}>${esc(x.name)}</option>`).join('')+'</optgroup>').join('')+'</select>';
+
+  // Put the overall progress graph first when opening the Progress tab.
+  const overallData=getWeeklyProgressData(ui.homeMetric||'1rm');
+  let h=`<div class="card" style="margin-bottom:12px">
+    <h3>
+      <span>Overall Progress</span>
+      <div class="chart-toggle-group">
+        <button class="${(ui.homeGraphType||'line')==='line'?'on':''}" data-act="sethomegtype" data-v="line">Line</button>
+        <button class="${(ui.homeGraphType||'line')==='bar'?'on':''}" data-act="sethomegtype" data-v="bar">Bar</button>
+      </div>
+    </h3>
+    <div style="display:flex;gap:6px;margin:8px 0;flex-wrap:wrap">
+      <button class="btn small ${ui.homeMetric==='1rm'||!ui.homeMetric?'acc':''}" data-act="sethomemetric" data-v="1rm">Est. 1RM Strength</button>
+      <button class="btn small ${ui.homeMetric==='vol'?'acc':''}" data-act="sethomemetric" data-v="vol">Volume Load</button>
+      <button class="btn small ${ui.homeMetric==='top'?'acc':''}" data-act="sethomemetric" data-v="top">Avg Top Weight</button>
+    </div>
+    ${renderStockChart(overallData,ui.homeGraphType||'line')}
+  </div>`;
+
+  h+='<select id="psel" style="width:100%;margin-bottom:10px">'+getPlan().map(d=>`<optgroup label="${esc(d.name)}">`+d.ex.map(x=>`<option value="${x.id}"${x.id===ui.prog?' selected':''}>${esc(x.name)}</option>`).join('')+'</optgroup>').join('')+'</select>';
   
   const ds=Object.keys(S.logs).filter(d=>S.logs[d][e.id]&&filled(S.logs[d][e.id])).sort();
   if(!ds.length)return h+'<div class="empty">No sessions logged for this exercise yet.</div>';
@@ -1004,6 +1063,26 @@ document.addEventListener('change', e => {
     };
     reader.readAsText(file);
   }
+});
+
+// Global crash protection: show recovery options without clearing saved workout data.
+let errorDialogOpen=false;
+function showCrashDialog(message, detail=''){
+  if(errorDialogOpen) return;
+  errorDialogOpen=true;
+  const box=document.getElementById('error-box');
+  if(!box) return;
+  box.innerHTML=`<div class="error-overlay"><div class="error-card"><h2>⚠️ Something went wrong</h2><p>Lift Log hit an unexpected error. Your saved workouts have not been deliberately changed. Try returning to Home or reloading the app.</p><div><b>${esc(String(message||'Unexpected error'))}</b></div><div class="error-detail">${esc(String(detail||''))}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn acc" id="error-home">Go to Home</button><button class="btn" id="error-reload">Reload app</button><button class="btn" id="error-dismiss">Dismiss</button></div></div></div>`;
+  document.getElementById('error-home').onclick=()=>{errorDialogOpen=false;box.innerHTML='';try{ui.tab='home';render()}catch(e){showCrashDialog('Could not return Home',e&&e.stack||e)}};
+  document.getElementById('error-reload').onclick=()=>location.reload();
+  document.getElementById('error-dismiss').onclick=()=>{errorDialogOpen=false;box.innerHTML=''};
+}
+window.addEventListener('error', e=>{
+  showCrashDialog(e.message||'Script error',e.filename?`${e.filename}:${e.lineno||0}:${e.colno||0}`:'');
+});
+window.addEventListener('unhandledrejection', e=>{
+  const reason=e.reason;
+  showCrashDialog('An operation failed',reason&&(reason.stack||reason.message)||String(reason||''));
 });
 
 window.onload = function(){
