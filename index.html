@@ -1,6 +1,6 @@
 <!--
-  Lift Log version: 1.2.5
-  Maintenance note: Added per-session exercise add/remove controls while preserving historical logs.
+  Lift Log version: 1.3.3
+  Maintenance note: Bug-fix release – debounced persistence, date validation, safer PR detection, timer cleanup, reorder guards, storage hygiene, and archived-exercise pruning.
 -->
 <!doctype html>
 <html lang="en">
@@ -30,7 +30,7 @@
   --down:#f03e3e;
   --onacc:#111;
   --glass-glow: rgba(255,138,76,0.18);
-  --glass-border: rgba(255,255,255,0.12);
+  --glass-border: rgba(255,255,255,0.08);
   color-scheme:dark;
 }
 html{scroll-padding-top:env(safe-area-inset-top,0px);background:var(--bg)}
@@ -41,18 +41,20 @@ body{
   color:var(--ink);
   font:15px/1.4 ui-rounded,"SF Pro Rounded",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   transition: background-color 0.3s ease, color 0.3s ease;
+  overflow-x:hidden;
 }
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:10}
 main{max-width:720px;margin:0 auto;padding:4px 12px 100px;transition:opacity 0.2s ease, transform 0.2s ease}
+
 /* Recoverable error dialog */
 #error-box:empty{display:none}
 #error-box .error-overlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px}
 #error-box .error-card{width:min(100%,420px);background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:0 18px 60px #0008}
 #error-box .error-card h2{margin:0 0 8px;font-size:20px}
 #error-box .error-detail{font-size:12px;opacity:.8;white-space:pre-wrap;overflow-wrap:anywhere;max-height:100px;overflow:auto;margin:10px 0}
+
 /* Smooth, subtle entrance when switching app tabs */
 #app.tab-enter{animation:tabEnter 280ms cubic-bezier(.2,.75,.25,1) both;will-change:opacity,transform}
-/* Date navigation: older sessions move left; newer sessions move right. */
 #app.day-enter-older{animation:dayEnterOlder 260ms cubic-bezier(.2,.75,.25,1) both;will-change:opacity,transform}
 #app.day-enter-newer{animation:dayEnterNewer 260ms cubic-bezier(.2,.75,.25,1) both;will-change:opacity,transform}
 @keyframes dayEnterOlder{from{opacity:.55;transform:translateX(32px)}to{opacity:1;transform:translateX(0)}}
@@ -96,13 +98,34 @@ input[type=color]{width:56px;height:36px;padding:2px;cursor:pointer}
   background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px;
   transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
-.glass-mode .card, .glass-mode .mb, .glass-mode .stat, .glass-mode .bottom-nav{
-  background: rgba(30,30,28,0.65) !important;
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
+
+/* Base Liquid Glass Theme (Premium Apple Style) */
+.glass-mode .card, .glass-mode .mb, .glass-mode .stat, .glass-mode .bottom-nav {
+  background: linear-gradient(135deg, rgba(45,45,42,0.45) 0%, rgba(25,25,23,0.55) 100%) !important;
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
   border: 1px solid var(--glass-border) !important;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1) !important;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,0.06), 0 8px 24px rgba(0,0,0,0.3) !important;
 }
+
+/* Floating Draggable Clock (Ultra-Premium Glass) */
+.glass-mode .timer-widget {
+  background: linear-gradient(135deg, rgba(55,55,52,0.5) 0%, rgba(20,20,18,0.65) 100%) !important;
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  box-shadow: 
+    inset 0 1px 1px rgba(255,255,255,0.18), 
+    inset 0 -1px 1px rgba(0,0,0,0.3), 
+    0 16px 40px rgba(0,0,0,0.55) !important;
+}
+.glass-mode .timer-widget::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: linear-gradient(135deg, rgba(255,255,255,0.07) 0%, transparent 50%);
+  pointer-events: none; z-index: 0;
+}
+.glass-mode .timer-widget > * { position: relative; z-index: 1; }
+
 .card h3{margin:0;font-size:16px;display:flex;align-items:center;justify-content:space-between}
 .drag-handle{border:0;background:transparent;color:var(--mute);font-size:21px;line-height:1;padding:3px 8px 3px 0;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
 .exercise-card.dragging{opacity:.72;transform:scale(.992);border-color:var(--acc);box-shadow:0 10px 28px rgba(0,0,0,.24);position:relative;z-index:2}
@@ -113,9 +136,13 @@ body.exercise-reordering{user-select:none;-webkit-user-select:none;cursor:grabbi
 .meta{color:var(--mute);font-size:13px;margin:2px 0 6px}
 .last{font-size:13px;color:var(--mute);background:var(--bg);border-radius:8px;padding:6px 8px;margin-bottom:8px}
 .up{display:block;margin-top:4px;color:var(--ok);font-weight:600}
-.row{display:grid;grid-template-columns:44px 1fr 1fr;gap:8px;align-items:center;margin-bottom:6px}
-.row span{color:var(--mute);font-size:13px}
+.row{display:grid;grid-template-columns:44px 1fr 1fr;gap:8px;align-items:center;margin-bottom:6px;transition:opacity 0.2s ease}
+.row span{color:var(--mute);font-size:13px;transition:color 0.2s ease}
 .row input{width:100%;text-align:center}
+/* Set Complete Visual State */
+.row.set-done{opacity:0.6}
+.row.set-done span{color:var(--ok);font-weight:700}
+
 .note{width:100%;margin-top:4px}
 .small{font-size:13px;padding:6px 10px}
 .acc{color:var(--acc);border-color:var(--acc)}
@@ -176,13 +203,62 @@ svg{width:100%;height:auto;display:block}
 .bottom-nav button .ic{font-size:20px;line-height:1}
 .bottom-nav button:active{transform:scale(0.9)}
 
+/* Floating Draggable & Edge-Docking Timer Widget */
 .timer-widget{
-  position:fixed;bottom:76px;right:16px;background:var(--card);border:2px solid var(--acc);border-radius:30px;
-  padding:8px 16px;display:flex;align-items:center;gap:10px;z-index:95;box-shadow:0 8px 24px rgba(0,0,0,0.5);
-  animation: slideUp 0.25s cubic-bezier(0.18,0.89,0.32,1.28);
+  position:fixed;bottom:90px;right:20px;
+  background:var(--card);border:2px solid var(--acc);border-radius:24px;
+  padding:16px 20px;display:flex;flex-direction:column;align-items:center;gap:12px;
+  z-index:95;box-shadow:0 16px 40px rgba(0,0,0,0.65);
+  animation: popIn 0.35s cubic-bezier(0.18,0.89,0.32,1.28);
+  width: 240px; max-width: 90vw;
+  touch-action:none; user-select:none; -webkit-user-select:none;
+  cursor:grab; will-change: transform, left, top;
 }
-.timer-widget .time{font-family:ui-monospace,Menlo,monospace;font-size:18px;font-weight:bold;color:var(--acc);cursor:pointer}
-.timer-widget button{background:none;border:none;color:var(--ink);font-size:15px;cursor:pointer;padding:2px 6px}
+.timer-widget:active{cursor:grabbing}
+.timer-widget.dragging {
+  transform: scale(1.02);
+  box-shadow: 0 24px 50px rgba(0,0,0,0.75) !important;
+}
+
+/* Edge Hiding Behaviors */
+.timer-widget.docked-left {
+  transform: translateX(calc(-100% + 36px)) !important;
+  opacity: 0.85;
+}
+.timer-widget.docked-right {
+  transform: translateX(calc(100% - 36px)) !important;
+  opacity: 0.85;
+}
+.glass-mode .timer-widget.docked-left, .glass-mode .timer-widget.docked-right {
+  opacity: 1; /* Maintain glass clarity while hiding */
+}
+.timer-widget.docked-left .timer-body, .timer-widget.docked-right .timer-body {
+  pointer-events: none; opacity: 0.15;
+}
+.timer-dock-handle{
+  position:absolute; top:50%; transform:translateY(-50%);
+  width:26px; height:44px; background:var(--acc); color:var(--onacc);
+  display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:16px;
+  border-radius:4px; opacity:0; pointer-events:none; transition:opacity 0.2s ease;
+  z-index: 10;
+}
+.timer-widget.docked-left .timer-dock-handle{right:4px; opacity:1; pointer-events:auto;}
+.timer-widget.docked-right .timer-dock-handle{left:4px; opacity:1; pointer-events:auto;}
+
+.timer-circle-wrap{position:relative;width:120px;height:120px}
+.timer-svg{width:100%;height:100%;transform:rotate(-90deg)}
+.timer-bg-circle{fill:none;stroke:var(--line);stroke-width:8}
+.timer-prog-circle{
+  fill:none;stroke:var(--acc);stroke-width:8;stroke-linecap:round;
+  stroke-dasharray:283; /* 2 * PI * 45 = 282.7 */
+  transition:stroke-dashoffset 1s linear;
+}
+.timer-widget .time{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-family:ui-monospace,Menlo,monospace;font-size:28px;font-weight:bold;color:var(--acc);cursor:pointer;
+}
+.timer-widget .ctrls{display:flex;gap:8px;width:100%;justify-content:center}
+.timer-widget .btn{flex:1;padding:8px;font-size:13px;text-align:center;font-weight:bold}
 
 .pr-modal-overlay{
   position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(8px);
@@ -202,7 +278,7 @@ svg{width:100%;height:auto;display:block}
 
 @keyframes slideUp{from{transform:translateY(30px);opacity:0}to{transform:translateY(0);opacity:1}}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-@keyframes popIn{from{transform:scale(0.7);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes popIn{from{transform:translate(-50%, 20px) scale(0.85);opacity:0}to{transform:translate(-50%, 0) scale(1);opacity:1}}
 </style>
 </head>
 <body>
@@ -225,19 +301,32 @@ svg{width:100%;height:auto;display:block}
 </div>
 
 <div id="timer-box" style="display:none" class="timer-widget">
-  <span>⏱️</span>
-  <span class="time" id="timer-val" data-act="customtimer" title="Tap to set custom duration">03:00</span>
-  <button data-act="timer-add">+30s</button>
-  <button data-act="customtimer" style="font-size:13px;color:var(--mute)">✏️</button>
-  <button data-act="timer-close">✕</button>
+  <div class="timer-dock-handle" id="timer-dock-arrow">‹</div>
+  <div class="timer-body" style="display:flex;flex-direction:column;align-items:center;gap:12px;width:100%">
+    <div style="font-size:12px;color:var(--mute);letter-spacing:1px;font-weight:bold;position:relative;z-index:1">REST TIMER</div>
+    <div class="timer-circle-wrap">
+      <svg class="timer-svg" viewBox="0 0 100 100">
+        <circle class="timer-bg-circle" cx="50" cy="50" r="45"></circle>
+        <circle class="timer-prog-circle" cx="50" cy="50" r="45" id="timer-ring"></circle>
+      </svg>
+      <div class="time" id="timer-val" data-act="customtimer" title="Tap to set custom duration">03:00</div>
+    </div>
+    <div class="ctrls">
+      <button class="btn" data-act="timer-add">+30s</button>
+      <button class="btn" data-act="timer-close" style="background:var(--bg)">Stop</button>
+    </div>
+  </div>
 </div>
 
 <div id="pr-modal-box"></div>
 <div id="error-box" role="alertdialog" aria-live="assertive"></div>
 
 <script>
+// Mobile Haptic Helper
+function haptic(ms=10) { if(navigator.vibrate) navigator.vibrate(ms); }
+
 const KEY='liftlog_v2', TKEY='liftlog_theme_v2';
-const DEFT={bg:'#141413',card:'#1e1e1c',acc:'#ff8a4c',ink:'#efefea',up:'#37b24d',down:'#f03e3e',glass:false,restTimerMin:3,homeGraphType:'line',progGraphType:'line'};
+const DEFT={bg:'#141413',card:'#1e1e1c',acc:'#ff8a4c',ink:'#efefea',up:'#37b24d',down:'#f03e3e',glass:false,restTimerMin:3,homeGraphType:'line',progGraphType:'line',alarmType:'beep',customAlarmData:''};
 
 const PPL_ROUTINE=[
   ["Monday - Pull",[["Lat Pulldown Machine",3,"8-12"],["Chest-Supported Row Machine",3,"8-12"],["Seated Cable Row",2,"10-15"],["Machine Pullover",2,"10-15"],["Reverse Pec Deck",3,"12-15"],["Preacher Curl Machine",3,"8-12"],["Cable Hammer Curl",2,"10-15"]]],
@@ -298,9 +387,50 @@ function normalizeLogNumbers(state){
   }));
 }
 normalizeLogNumbers(S);
-function saveState(){try{localStorage.setItem(KEY,JSON.stringify(S));storageOK=true}catch(e){storageOK=false}warn()}
+
+/* Debounced persistence to reduce race conditions on rapid input */
+let _saveTimer = null;
+function saveStateImmediate(){
+  try{
+    localStorage.setItem(KEY, JSON.stringify(S));
+    storageOK = true;
+  }catch(e){
+    storageOK = false;
+  }
+  warn();
+}
+function saveState(debounceMs){
+  if(debounceMs === 0 || debounceMs === false){
+    if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; }
+    saveStateImmediate();
+    return;
+  }
+  if(_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(()=>{
+    _saveTimer = null;
+    saveStateImmediate();
+  }, typeof debounceMs === 'number' ? debounceMs : 280);
+}
 function saveTheme(){try{localStorage.setItem(TKEY,JSON.stringify(T))}catch(e){}}
-function warn(){document.getElementById('warn').innerHTML=storageOK?'':'<div class="warn">Private mode active: data will not persist when closing page.</div>'}
+function warn(){
+  const el = document.getElementById('warn');
+  if(!el) return;
+  if(!storageOK){
+    el.innerHTML = '<div class="warn">Private mode or storage quota exceeded: data may not persist when closing the page.</div>';
+  } else {
+    el.innerHTML = '';
+  }
+}
+
+/* Strict ISO date validation (YYYY-MM-DD) */
+function isValidISODate(str){
+  if(typeof str !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return false;
+  const d = new Date(str + 'T00:00:00');
+  return !isNaN(d.getTime()) && d.toISOString().slice(0,10) === str;
+}
+function safeDate(str, fallback){
+  return isValidISODate(str) ? str : (fallback || iso(new Date()));
+}
 
 const h2r=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
 const r2h=a=>'#'+a.map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
@@ -315,29 +445,59 @@ function applyTheme(){
   s.setProperty('--onacc',lum(T.acc)>.45?'#111111':'#ffffff');s.setProperty('--ok',lum(T.bg)>.5?'#2b8a3e':'#69db7c');
   const rgb=h2r(T.acc);
   s.setProperty('--glass-glow',`rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.25)`);
-  if(T.glass) document.body.classList.add('glass-mode');
-  else document.body.classList.remove('glass-mode');
+  if(T.glass) {
+    document.body.classList.add('glass-mode');
+    document.querySelector('.timer-widget').style.border = '1px solid rgba(255,255,255,0.12)';
+  } else {
+    document.body.classList.remove('glass-mode');
+    document.querySelector('.timer-widget').style.border = '2px solid var(--acc)';
+  }
 }
 
 const iso=d=>new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);
-const fmt=d=>new Date(d+'T00:00').toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'});
+const fmt=d=>{
+  if(!isValidISODate(d)) return String(d||'');
+  return new Date(d+'T00:00').toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'});
+};
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const getPlan=()=>S.routines[S.activeRoutine]||S.routines.ppl;
 const WD=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-const dayIdx=d=>getPlan().findIndex(p=>p.name.toLowerCase().includes(WD[new Date(d+'T00:00').getDay()].toLowerCase()));
-const dayFor=d=>Math.max(0,dayIdx(d));
+const dayIdx=d=>{
+  if(!isValidISODate(d)) return -1;
+  const dayName = WD[new Date(d+'T00:00').getDay()].toLowerCase();
+  return getPlan().findIndex(p=>p.name.toLowerCase().includes(dayName));
+};
+const dayFor=d=>Math.max(0, dayIdx(d));
 const now=new Date();
 const ui={tab:'home',date:iso(now),day:0,extra:{},homeMetric:'1rm',homeGraphType:T.homeGraphType||'line',progGraphType:T.progGraphType||'line',cm:{y:now.getFullYear(),m:now.getMonth()}};
 let lastRenderedTab=null;
 let lastRenderedDate=null;
 let lastRenderedDay=null;
 ui.day=dayFor(ui.date);
-const num=v=>{const n=parseFloat(v);return isNaN(n)?null:n};
-const filled=r=>r&&r.sets&&r.sets.some(s=>s&&num(s.w)!==null);
-function lastBefore(id,date){const ds=Object.keys(S.logs).filter(d=>d<date&&S.logs[d][id]&&filled(S.logs[d][id])).sort();return ds.length?ds[ds.length-1]:null}
-function topW(r){return Math.max(...r.sets.map(s=>num(s.w)).filter(x=>x!==null))}
-function est1RM(r){return Math.max(...r.sets.map(s=>((num(s.w)||0)*(1+(num(s.r)||0)/30))))}
-function setsTxt(r){return r.sets.filter(s=>s&&num(s.w)!==null).map(s=>s.w+'×'+(s.r||'?')).join(', ')}
+const num=v=>{
+  if(v===''||v===null||v===undefined) return null;
+  const n=Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+const filled=r=>r&&Array.isArray(r.sets)&&r.sets.some(s=>s&&num(s.w)!==null&&num(s.w)>0);
+function lastBefore(id,date){
+  if(!isValidISODate(date)) return null;
+  const ds=Object.keys(S.logs).filter(d=>d<date&&S.logs[d]&&S.logs[d][id]&&filled(S.logs[d][id])).sort();
+  return ds.length?ds[ds.length-1]:null;
+}
+function topW(r){
+  const vals=(r&&r.sets||[]).map(s=>num(s.w)).filter(x=>x!==null&&x>0);
+  return vals.length ? Math.max(...vals) : 0;
+}
+function est1RM(r){
+  const vals=(r&&r.sets||[]).map(s=>{
+    const w=num(s.w), reps=num(s.r);
+    if(w===null||w<=0||reps===null||reps<0) return 0;
+    return w*(1+reps/30);
+  }).filter(v=>v>0);
+  return vals.length ? Math.max(...vals) : 0;
+}
+function setsTxt(r){return (r&&r.sets||[]).filter(s=>s&&num(s.w)!==null).map(s=>s.w+'×'+(s.r||'?')).join(', ')}
 function exList(){
   const o=[];
   getPlan().forEach(d=>d.ex.forEach(e=>o.push({...e,day:d.name})));
@@ -347,6 +507,23 @@ function exList(){
       o.push({...e,id,day:'Archived exercise'});
   });
   return o;
+}
+
+/** Remove archived entries that no longer appear in any log */
+function pruneArchivedExercises(){
+  if(!S.archivedExercises) return false;
+  let changed = false;
+  Object.keys(S.archivedExercises).forEach(id=>{
+    const stillHasHistory = Object.values(S.logs||{}).some(day=>day&&day[id]&&filled(day[id]));
+    if(!stillHasHistory){
+      delete S.archivedExercises[id];
+      changed = true;
+    }
+  });
+  if(changed && Object.keys(S.archivedExercises).length === 0){
+    delete S.archivedExercises;
+  }
+  return changed;
 }
 
 function calcStreak(){
@@ -365,12 +542,13 @@ function calcStreak(){
 }
 
 function getWeeklyProgressData(metric){
-  const dates=Object.keys(S.logs).sort();
+  const dates=Object.keys(S.logs||{}).filter(isValidISODate).sort();
   if(!dates.length) return [];
   
   const weeks={};
   dates.forEach(d=>{
     const dt=new Date(d+'T00:00');
+    if(isNaN(dt.getTime())) return;
     const day = dt.getDay(), diff = dt.getDate() - day + (day === 0 ? -6 : 1);
     const mon = new Date(dt.setDate(diff)).toISOString().slice(0,10);
     
@@ -401,37 +579,91 @@ function getWeeklyProgressData(metric){
   });
 }
 
-function playBeep(){
+function playAlarm(){
+  const type = T.alarmType || 'beep';
+  if(type === 'custom' && T.customAlarmData){
+    try{
+      const audio = new Audio(T.customAlarmData);
+      audio.play();
+      return;
+    }catch(e){}
+  }
+  
   try{
-    const ctx=new(window.AudioContext||window.webkitAudioContext)();
-    const osc=ctx.createOscillator();const gain=ctx.createGain();
-    osc.type='sine';osc.frequency.setValueAtTime(880,ctx.currentTime);
-    gain.gain.setValueAtTime(0.1,ctx.currentTime);
-    osc.connect(gain);gain.connect(ctx.destination);
-    osc.start();osc.stop(ctx.currentTime+0.3);
+    const ctx = new(window.AudioContext||window.webkitAudioContext)();
+    if(type === 'digital'){
+      for(let i=0; i<4; i++){
+        const osc = ctx.createOscillator(); const gain = ctx.createGain();
+        osc.type = 'square'; osc.frequency.setValueAtTime(1400, ctx.currentTime + i*0.15);
+        gain.gain.setValueAtTime(0.04, ctx.currentTime + i*0.15);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i*0.15 + 0.1);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + i*0.15); osc.stop(ctx.currentTime + i*0.15 + 0.1);
+      }
+    } else {
+      const osc=ctx.createOscillator();const gain=ctx.createGain();
+      osc.type='sine';osc.frequency.setValueAtTime(880,ctx.currentTime);
+      gain.gain.setValueAtTime(0.1,ctx.currentTime);
+      osc.connect(gain);gain.connect(ctx.destination);
+      osc.start();osc.stop(ctx.currentTime+0.4);
+    }
   }catch(e){}
 }
 
-let timerInterval=null, timerSecs=0;
+let timerInterval=null, timerSecs=0, timerTotalSecs=0, targetEndTime=0;
+function stopTimer(){
+  if(timerInterval){ clearInterval(timerInterval); timerInterval = null; }
+  targetEndTime = 0;
+  timerSecs = 0;
+  const box = document.getElementById('timer-box');
+  if(box) box.style.display = 'none';
+}
 function startTimer(durationInSeconds){
-  clearInterval(timerInterval);
-  timerSecs=Math.round(durationInSeconds);
-  document.getElementById('timer-box').style.display='flex';
+  stopTimer();
+  if(!Number.isFinite(durationInSeconds) || durationInSeconds <= 0) return;
+  timerTotalSecs = durationInSeconds;
+  targetEndTime = Date.now() + (durationInSeconds * 1000);
+  
+  const box = document.getElementById('timer-box');
+  if(!box) return;
+  box.style.display='flex';
+  box.classList.remove('docked-left','docked-right');
+  
+  const ring = document.getElementById('timer-ring');
+  if(ring) {
+    ring.style.transition = 'none';
+    ring.style.strokeDashoffset = 0;
+    setTimeout(() => { if(ring) ring.style.transition = 'stroke-dashoffset 1s linear'; }, 50);
+  }
+  
+  updateTimerLogic();
+  timerInterval = setInterval(updateTimerLogic, 1000);
+}
+
+function updateTimerLogic() {
+  if (targetEndTime === 0) return;
+  const now = Date.now();
+  timerSecs = Math.max(0, Math.round((targetEndTime - now) / 1000));
+  
   updateTimerUI();
-  timerInterval=setInterval(()=>{
-    timerSecs--;
-    updateTimerUI();
-    if(timerSecs<=0){
-      clearInterval(timerInterval);
-      playBeep();
-      if(navigator.vibrate) navigator.vibrate([200,100,200]);
-    }
-  },1000);
+  
+  if (timerSecs <= 0) {
+    if(timerInterval){ clearInterval(timerInterval); timerInterval = null; }
+    targetEndTime = 0;
+    playAlarm();
+    haptic([200,100,200,100,200]);
+  }
 }
 
 function updateTimerUI(){
   const m=Math.floor(timerSecs/60), s=timerSecs%60;
   document.getElementById('timer-val').textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+
+  const ring = document.getElementById('timer-ring');
+  if (ring && timerTotalSecs > 0) {
+    const pct = Math.max(0, Math.min(1, timerSecs / timerTotalSecs));
+    ring.style.strokeDashoffset = 283 - (283 * pct);
+  }
 }
 
 function promptCustomTimer(){
@@ -443,24 +675,26 @@ function promptCustomTimer(){
 }
 
 function checkPR(exId, weight, reps){
-  if(!weight||!reps) return;
-  const current1RM = weight * (1 + reps/30);
+  const w = num(weight);
+  const r = num(reps);
+  if(w === null || w <= 0 || r === null || r < 0) return;
+  const current1RM = w * (1 + r / 30);
+  if(!Number.isFinite(current1RM) || current1RM <= 0) return;
   let bestPrev = 0;
-  Object.keys(S.logs).forEach(d=>{
-    if(d !== ui.date && S.logs[d][exId]){
-      const r = S.logs[d][exId];
-      const prevRM = est1RM(r);
+  Object.keys(S.logs || {}).forEach(d=>{
+    if(d !== ui.date && S.logs[d] && S.logs[d][exId]){
+      const prevRM = est1RM(S.logs[d][exId]);
       if(prevRM > bestPrev) bestPrev = prevRM;
     }
   });
-  if(bestPrev > 0 && current1RM > bestPrev){
-    showPRModal(weight, reps, Math.round(current1RM));
+  if(bestPrev > 0 && current1RM > bestPrev * 1.001){ // small epsilon to avoid float noise
+    showPRModal(w, r, Math.round(current1RM));
   }
 }
 
 function showPRModal(w, r, rm){
-  playBeep();
-  if(navigator.vibrate) navigator.vibrate([100,50,100,50,200]);
+  playAlarm();
+  haptic([100,50,100,50,200]);
   document.getElementById('pr-modal-box').innerHTML = `
     <div class="pr-modal-overlay" onclick="this.remove()">
       <div class="pr-modal">
@@ -500,7 +734,6 @@ function render(){
   const app=document.getElementById('app');
   app.innerHTML={home:vHome,today:vLog,log:vLog,cal:vCal,prog:vProg,set:vSet}[t]();
 
-  // Animate tab changes, or slide horizontally when changing dates within the log.
   app.classList.remove('tab-enter','day-enter-older','day-enter-newer');
   if(slideDirection){
     void app.offsetWidth;
@@ -636,7 +869,10 @@ function vCal(){
     const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`,k=dayIdx(ds),lab=k>=0?getPlan()[k].name.split(' - ').pop():'Rest';
     h+=`<button class="cd${S.logs[ds]?' on':''}${ds===td?' td':''}" data-act="cal" data-v="${ds}"><span>${d}</span><small>${esc(lab)}</small></button>`;
   }
-  return h+'</div><div class="meta" style="margin-top:10px">Filled days have logged workouts. Tap any date to view.</div>';
+  const hasLogs = Object.keys(S.logs).length > 0;
+  if(!hasLogs) h += `</div><div class="empty">No workouts logged yet.<br><br><button class="btn acc" data-act="go" data-v="today">Start Your First Workout</button></div>`;
+  else h += `</div><div class="meta" style="margin-top:10px">Filled days have logged workouts. Tap any date to view.</div>`;
+  return h;
 }
 
 function vLog(){
@@ -665,7 +901,8 @@ function vLog(){
     
     for(let i=0;i<n;i++){
       const s=rec.sets[i]||{w:'',r:''},ls=lr&&(lr.sets[i]||lr.sets[lr.sets.length-1]);
-      h+=`<div class="row">
+      const isDone = (s.w!=='' && s.r!=='') ? ' set-done' : '';
+      h+=`<div class="row${isDone}">
         <span>Set ${i+1}</span>
         <input type="number" inputmode="decimal" min="0" step="any" data-id="${e.id}" data-i="${i}" data-f="w" placeholder="${ls&&ls.w?esc(ls.w):'kg'}" value="${esc(s.w)}">
         <input type="number" inputmode="numeric" min="0" step="1" data-id="${e.id}" data-i="${i}" data-f="r" placeholder="${ls&&ls.r?esc(ls.r):'reps'}" value="${esc(s.r)}">
@@ -682,11 +919,11 @@ function vLog(){
 }
 
 function vProg(){
-  const all=exList();if(!all.length)return'<div class="empty">No exercises in active plan.</div>';
+  const all=exList();
+  if(!all.length)return '<div class="empty">No exercises in active plan.<br><br><button class="btn acc" data-act="go" data-v="set">Manage Routine</button></div>';
   if(!ui.prog||!all.find(e=>e.id===ui.prog))ui.prog=all[0].id;
   const e=all.find(x=>x.id===ui.prog);
 
-  // Put the overall progress graph first when opening the Progress tab.
   const overallData=getWeeklyProgressData(ui.homeMetric||'1rm');
   let h=`<div class="card" style="margin-bottom:12px">
     <h3>
@@ -708,7 +945,7 @@ function vProg(){
     (all.some(x=>x.day==='Archived exercise')?'<optgroup label="Archived exercises">'+all.filter(x=>x.day==='Archived exercise').map(x=>`<option value="${x.id}"${x.id===ui.prog?' selected':''}>${esc(x.name)}</option>`).join('')+'</optgroup>':'')+'</select>';
   
   const ds=Object.keys(S.logs).filter(d=>S.logs[d][e.id]&&filled(S.logs[d][e.id])).sort();
-  if(!ds.length)return h+'<div class="empty">No sessions logged for this exercise yet.</div>';
+  if(!ds.length)return h+'<div class="empty">No sessions logged for this exercise yet.<br><br><button class="btn acc" data-act="go" data-v="today">Go to Today\'s Workout</button></div>';
   
   const tops=ds.map(d=>topW(S.logs[d][e.id]));
   const cur=tops[tops.length-1],pr=Math.max(...tops),diff=cur-tops[0];
@@ -774,6 +1011,22 @@ function vSet(){
     </div>
   </div>`;
 
+  h+=`<div class="card">
+    <h3>Timer & Alarm</h3>
+    <div class="cr" style="margin-top:6px;">
+      <label>Alarm Sound</label>
+      <select id="s_alarm" data-c="alarmType" style="max-width:140px;font-size:14px;padding:6px">
+        <option value="beep" ${T.alarmType==='beep'||!T.alarmType?'selected':''}>Classic Beep</option>
+        <option value="digital" ${T.alarmType==='digital'?'selected':''}>Digital Alarm</option>
+        <option value="custom" ${T.alarmType==='custom'?'selected':''}>Custom Upload...</option>
+      </select>
+    </div>
+    <div id="custom-audio-wrap" style="display:${T.alarmType==='custom'?'block':'none'}; margin-top:10px;">
+      <input type="file" id="custom-audio-file" accept="audio/*" class="small" style="width:100%;font-size:12px;padding:6px;">
+      <div class="meta" style="margin-top:8px">Upload a short sound (mp3/wav) under 500KB. Saved instantly.</div>
+    </div>
+  </div>`;
+
   h+='<div class="card"><h3>Storage & Data</h3>'+
     `<div class="meta" style="margin-top:6px">History Log Size: <b>${storageKB} KB</b> (${storagePct}% of ~5MB quota)</div>`+
     `<div style="width:100%;background:var(--bg);height:8px;border-radius:4px;overflow:hidden;margin:8px 0;border:1px solid var(--line)"><div style="width:${Math.max(2, storagePct)}%;background:${storagePct>80?'var(--down)':'var(--acc)'};height:100%"></div></div>`+
@@ -781,6 +1034,7 @@ function vSet(){
     '</div>';
 
   h+='<div class="card"><h3>Theme & Custom Colors</h3>'+
+    `<div class="cr"><label>Premium Liquid Glass UI</label><input type="checkbox" id="c_glass" data-c="glass" ${T.glass?'checked':''}></div>`+
     '<div style="margin-top:8px">'+
     rows.map(r=>`<div class="cr"><span>${r[1]}</span><input type="color" data-f="${r[0]}" value="${T[r[0]]||'#000000'}"></div>`).join('')+
     '</div></div>';
@@ -791,14 +1045,15 @@ function vSet(){
     <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
       <button class="btn small" data-act="copy">Copy JSON</button>
       <button class="btn small acc" data-act="restore">Restore JSON</button>
+      <button class="btn small" data-act="exptxt">Export TXT Backup</button>
       <button class="btn small" data-act="expcsv">Export CSV</button>
-      <button class="btn small" data-act="impfile">Import File</button>
+      <button class="btn small" data-act="impfile">Import TXT / CSV / JSON</button>
       <input type="file" id="impfile_input" accept=".csv, .json, .txt" style="display:none">
     </div>
     <div id="bkmsg" class="meta" style="margin-top:6px"></div>
   </div>`;
 
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.2.5</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.3.3</div></div>`;
 
   return h;
 }
@@ -838,6 +1093,53 @@ function parseCSVLogs(text) {
     if (note) logs[date][exId].note = note;
   }
   return logs;
+}
+
+function exportTimestamp(date=new Date()) {
+  const pad=n=>String(n).padStart(2,'0');
+  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+}
+function downloadTextFile(content, filename, mime='text/plain;charset=utf-8') {
+  const blob=new Blob([content],{type:mime});
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement('a');
+  link.href=url;
+  link.download=filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function createTextBackup() {
+  const allEx=exList();
+  const lines=[
+    'LIFT LOG — FULL TEXT BACKUP',
+    `Exported: ${new Date().toLocaleString()}`,
+    `Workout dates: ${Object.keys(S.logs||{}).length}`,
+    '',
+    'WORKOUT PROGRESS'
+  ];
+  Object.keys(S.logs||{}).sort().forEach(date=>{
+    lines.push('',`DATE: ${date}`);
+    Object.keys(S.logs[date]||{}).forEach(exId=>{
+      const rec=S.logs[date][exId]||{};
+      const ex=allEx.find(item=>item.id===exId);
+      lines.push(`Exercise: ${ex?ex.name:exId}`);
+      (rec.sets||[]).forEach((set,index)=>{
+        if(set && (set.w!=='' || set.r!=='')) lines.push(`Set ${index+1}: ${set.w===''?'—':set.w} kg × ${set.r===''?'—':set.r} reps`);
+      });
+      if(rec.note) lines.push(`Note: ${rec.note}`);
+    });
+  });
+  lines.push(
+    '',
+    'FULL RESTORE DATA (keep this section when importing)',
+    'The JSON below preserves routines, exercise IDs, all log data, and theme settings.',
+    'LIFTLOG_BACKUP_JSON_BEGIN',
+    JSON.stringify({routines:S.routines,logs:S.logs,archivedExercises:S.archivedExercises||{},activeRoutine:S.activeRoutine,theme:T},null,2),
+    'LIFTLOG_BACKUP_JSON_END'
+  );
+  return lines.join('\n')+'\n';
 }
 
 function parseTXTLogs(text) {
@@ -880,6 +1182,118 @@ function parseTXTLogs(text) {
   });
   return logs;
 }
+
+// YouTube-style edge-docking & buttery spring inertia mechanics for Timer
+let timerDrag = null;
+let timerInertiaAnim = null;
+const timerBox = document.getElementById('timer-box');
+
+function initTimerDrag(e) {
+  if (e.target.closest('button') && e.target.closest('button').hasAttribute('data-act')) return;
+  if(timerInertiaAnim) cancelAnimationFrame(timerInertiaAnim);
+
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  const rect = timerBox.getBoundingClientRect();
+  
+  timerDrag = {
+    startX: clientX, startY: clientY,
+    initialX: rect.left, initialY: rect.top,
+    lastX: clientX, lastY: clientY,
+    vx: 0, vy: 0,
+    lastTime: Date.now(),
+    moved: false
+  };
+  timerBox.style.transition = 'none';
+  timerBox.classList.remove('docked-left','docked-right');
+}
+
+function onTimerMove(e) {
+  if (!timerDrag) return;
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  const now = Date.now();
+  const dt = now - timerDrag.lastTime;
+  
+  if(dt > 0){
+    timerDrag.vx = (clientX - timerDrag.lastX) / dt;
+    timerDrag.vy = (clientY - timerDrag.lastY) / dt;
+  }
+  timerDrag.lastX = clientX;
+  timerDrag.lastY = clientY;
+  timerDrag.lastTime = now;
+
+  const dx = clientX - timerDrag.startX;
+  const dy = clientY - timerDrag.startY;
+  
+  if(Math.hypot(dx, dy) > 6 && !timerDrag.moved) {
+    timerDrag.moved = true;
+    timerBox.classList.add('dragging');
+  }
+  
+  let newX = timerDrag.initialX + dx;
+  let newY = timerDrag.initialY + dy;
+  
+  newX = Math.max(10, Math.min(window.innerWidth - timerBox.offsetWidth - 10, newX));
+  newY = Math.max(60, Math.min(window.innerHeight - timerBox.offsetHeight - 80, newY));
+  
+  timerBox.style.left = newX + 'px';
+  timerBox.style.top = newY + 'px';
+  timerBox.style.right = 'auto';
+  timerBox.style.bottom = 'auto';
+}
+
+function endTimerDrag(e) {
+  if (!timerDrag) return;
+  const moved = timerDrag.moved;
+  const vx = timerDrag.vx || 0;
+  timerDrag = null;
+  timerBox.classList.remove('dragging');
+
+  if (moved) {
+    const rect = timerBox.getBoundingClientRect();
+    let targetX = rect.left + (vx * 120);
+    const midX = targetX + rect.width / 2;
+    
+    timerBox.style.transition = 'transform 0.4s cubic-bezier(0.18,0.89,0.32,1.28), left 0.4s cubic-bezier(0.18,0.89,0.32,1.28), top 0.4s cubic-bezier(0.18,0.89,0.32,1.28)';
+
+    if (midX < window.innerWidth * 0.38 || vx < -0.4) {
+      timerBox.classList.add('docked-left');
+      document.getElementById('timer-dock-arrow').textContent = '›';
+      haptic(10);
+    } else if (midX > window.innerWidth * 0.62 || vx > 0.4) {
+      timerBox.classList.add('docked-right');
+      document.getElementById('timer-dock-arrow').textContent = '‹';
+      haptic(10);
+    } else {
+      if(rect.left < window.innerWidth / 2 - rect.width / 2){
+        timerBox.style.left = '16px';
+      } else {
+        timerBox.style.left = (window.innerWidth - rect.width - 16) + 'px';
+      }
+    }
+  } else {
+    if(timerBox.classList.contains('docked-left') || timerBox.classList.contains('docked-right')){
+      timerBox.style.transition = 'transform 0.4s cubic-bezier(0.18,0.89,0.32,1.28)';
+      timerBox.classList.remove('docked-left','docked-right');
+    }
+  }
+}
+
+timerBox.addEventListener('mousedown', initTimerDrag);
+document.addEventListener('mousemove', onTimerMove);
+document.addEventListener('mouseup', endTimerDrag);
+
+timerBox.addEventListener('touchstart', initTimerDrag, {passive: true});
+document.addEventListener('touchmove', onTimerMove, {passive: true});
+document.addEventListener('touchend', endTimerDrag);
+
+timerBox.addEventListener('click', e => {
+  if((timerBox.classList.contains('docked-left') || timerBox.classList.contains('docked-right')) && !timerDrag?.moved){
+    timerBox.style.transition = 'transform 0.4s cubic-bezier(0.18,0.89,0.32,1.28)';
+    timerBox.classList.remove('docked-left','docked-right');
+  }
+});
 
 // Vertical drag-and-drop with edge auto-scroll and smoother card feedback.
 let exerciseDrag = null;
@@ -928,7 +1342,6 @@ document.addEventListener('pointermove', e => {
   }
   if (!exerciseDrag.moved) return;
   reorderExerciseAt(e.clientY);
-  // Keep scrolling the page while the pointer rests near either viewport edge.
   const edge = 88;
   const y = e.clientY;
   let speed = 0;
@@ -953,24 +1366,97 @@ function finishExerciseDrag(e) {
   if (!exerciseDrag) return;
   if (e && exerciseDrag.pointerId !== undefined && e.pointerId !== undefined && e.pointerId !== exerciseDrag.pointerId) return;
   const moved = exerciseDrag.moved;
+  const dragSnapshot = exerciseDrag;
+  exerciseDrag = null; // clear early to prevent re-entrancy
   stopExerciseAutoScroll();
   document.body.classList.remove('exercise-reordering');
   document.querySelectorAll('#app [data-ex-card]').forEach(c => c.classList.remove('dragging','drop-target'));
-  if (moved) {
+  if (moved && dragSnapshot) {
     const ids = [...document.querySelectorAll('#app [data-ex-card]')].map(c => c.dataset.exCard);
-    const day = getPlan()[ui.day];
+    const plan = getPlan();
+    const day = plan[ui.day];
+    if(!day || !Array.isArray(day.ex)) return;
     const byId = new Map(day.ex.map(ex => [ex.id, ex]));
-    if (ids.length === day.ex.length && ids.every(id => byId.has(id))) {
+    // Only commit if the DOM order is a complete permutation of the current day
+    if (ids.length === day.ex.length && ids.every(id => byId.has(id)) && new Set(ids).size === ids.length) {
       day.ex = ids.map(id => byId.get(id));
-      saveState();
+      saveState(0); // immediate persist for structural change
       render();
     }
   }
-  exerciseDrag = null;
 }
 document.addEventListener('pointerup', finishExerciseDrag);
 document.addEventListener('pointercancel', finishExerciseDrag);
 window.addEventListener('blur', () => { if (exerciseDrag) finishExerciseDrag(); });
+
+
+// Swipe to Change Days Navigation Logic
+let swipeStartX = null;
+let swipeStartY = null;
+document.addEventListener('touchstart', e => {
+  // Only register swipes on the main Log view; ignore timer, drag handles, active reordering, and form controls
+  if (ui.tab !== 'today') return;
+  if (document.body.classList.contains('exercise-reordering')) return;
+  if (e.target.closest('.timer-widget') || e.target.closest('[data-drag-handle]') || e.target.closest('input') || e.target.closest('button') || e.target.closest('select') || e.target.closest('textarea')) return;
+  swipeStartX = e.touches[0].clientX;
+  swipeStartY = e.touches[0].clientY;
+}, {passive: true});
+
+document.addEventListener('touchend', e => {
+  if (swipeStartX === null || ui.tab !== 'today') return;
+  
+  const dx = e.changedTouches[0].clientX - swipeStartX;
+  const dy = e.changedTouches[0].clientY - swipeStartY;
+  
+  // If user swiped horizontally far more than vertically
+  if (Math.abs(dx) > 70 && Math.abs(dy) < 50) {
+    const plan = getPlan();
+    if (dx < 0 && ui.day < plan.length - 1) {
+      // Swiped Left -> Load Next Day
+      haptic(15);
+      ui.day++;
+      render();
+    } else if (dx > 0 && ui.day > 0) {
+      // Swiped Right -> Load Prev Day
+      haptic(15);
+      ui.day--;
+      render();
+    }
+  }
+  swipeStartX = null;
+});
+
+// Keyboard Ergonomics: Enter Key to focus next weight input
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+    e.preventDefault();
+    if (e.target.dataset.f === 'r') {
+      // Find all weight/rep inputs in the DOM
+      const inputs = Array.from(document.querySelectorAll('input[data-f="w"], input[data-f="r"]'));
+      const idx = inputs.indexOf(e.target);
+      // Try to jump to the weight input of the next set
+      if (idx >= 0 && idx + 1 < inputs.length) {
+        const nextWeight = inputs.slice(idx + 1).find(inp => inp.dataset.f === 'w');
+        if (nextWeight) nextWeight.focus();
+        else e.target.blur();
+      } else {
+        e.target.blur();
+      }
+    } else {
+      e.target.blur(); // If hitting enter on notes or weight, just blur
+    }
+  }
+});
+
+// Keyboard Ergonomics: Tap outside to blur inputs (crucial for iOS numpad)
+document.addEventListener('touchstart', e => {
+  if(document.activeElement && document.activeElement.tagName === 'INPUT') {
+    if(!e.target.closest('input') && !e.target.closest('button') && !e.target.closest('[data-act]') && !e.target.closest('.timer-widget')) {
+      document.activeElement.blur();
+    }
+  }
+}, {passive:true});
+
 
 document.addEventListener('click', e => {
   const btn = e.target.closest('[data-act]');
@@ -986,13 +1472,14 @@ document.addEventListener('click', e => {
   else if(a==='clearhistory'){
     if(confirm('Are you sure you want to delete all logged workout history? This action cannot be undone.')){
       S.logs = {};
-      saveState();
+      if(S.archivedExercises) delete S.archivedExercises;
+      saveState(0);
       render();
     }
   }
   else if(a==='setroutine'){
     S.activeRoutine = v;
-    saveState();
+    saveState(0);
     render();
   }
   else if(a==='sethomemetric'){
@@ -1020,12 +1507,14 @@ document.addEventListener('click', e => {
     render();
   }
   else if(a==='cal'){
-    ui.date = v;
+    ui.date = safeDate(v, ui.date);
     ui.tab = 'today';
+    ui.day = dayFor(ui.date);
     render();
   }
   else if(a==='dt'){
-    let d = new Date(ui.date + 'T00:00');
+    const base = safeDate(ui.date);
+    let d = new Date(base + 'T00:00');
     d.setDate(d.getDate() + parseInt(v, 10));
     ui.date = iso(d);
     ui.day = dayFor(ui.date);
@@ -1057,7 +1546,7 @@ document.addEventListener('click', e => {
       if(range===null)return;
       const cleanRange=range.trim()||'8-12';
       day.ex.push({id:'custom_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),name:clean,sets,range:cleanRange});
-      saveState();
+      saveState(0);
       render();
     }
   }
@@ -1073,24 +1562,31 @@ document.addEventListener('click', e => {
       day.ex=day.ex.filter(item=>item.id!==id);
       delete ui.extra[id];
       if(ui.prog===id)ui.prog=null;
-      saveState();
+      pruneArchivedExercises();
+      saveState(0);
       render();
     }
   }
   else if(a==='addset'){
+    haptic(10);
     ui.extra[id] = (ui.extra[id] || 0) + 1;
     render();
   }
   else if(a==='starttimer'){
+    haptic(10);
     startTimer((T.restTimerMin || 3) * 60);
   }
   else if(a==='timer-add'){
-    timerSecs += 30;
-    updateTimerUI();
+    haptic(10);
+    if(targetEndTime > 0){
+      targetEndTime += 30000;
+      timerTotalSecs += 30;
+      updateTimerLogic();
+    }
   }
   else if(a==='timer-close'){
-    clearInterval(timerInterval);
-    document.getElementById('timer-box').style.display='none';
+    haptic(10);
+    stopTimer();
   }
   else if(a==='customtimer'){
     promptCustomTimer();
@@ -1106,14 +1602,21 @@ document.addEventListener('click', e => {
       const o = JSON.parse(document.getElementById('bk').value);
       if(o.routines && o.logs){
         S = o;
+        normalizeLogNumbers(S);
         if(o.theme){ T = {...DEFT, ...o.theme}; saveTheme(); }
-        saveState();
+        pruneArchivedExercises();
+        saveState(0);
         render();
         document.getElementById('bkmsg').textContent = 'Restored successfully!';
       }
     }catch(x){
       document.getElementById('bkmsg').textContent = 'Invalid JSON format.';
     }
+  }
+  else if(a==='exptxt'){
+    const stamp=exportTimestamp();
+    downloadTextFile(createTextBackup(),`LiftLog_Progress_Backup_${stamp}.txt`);
+    document.getElementById('bkmsg').textContent=`TXT backup exported (${stamp}). You can read it directly or import it later to restore your data.`;
   }
   else if(a==='expcsv'){
     let csv='Date,Exercise,Set,Weight,Reps,Note\n';
@@ -1128,12 +1631,9 @@ document.addEventListener('click', e => {
         });
       });
     });
-    const blob=new Blob([csv],{type:'text/csv'});
-    const url=URL.createObjectURL(blob);
-    const link=document.createElement('a');
-    link.href=url;
-    link.download='liftlog_export.csv';
-    link.click();
+    const stamp=exportTimestamp();
+    downloadTextFile(csv,`LiftLog_Progress_${stamp}.csv`,'text/csv;charset=utf-8');
+    document.getElementById('bkmsg').textContent=`CSV exported (${stamp}).`;
   }
   else if(a==='impfile'){
     document.getElementById('impfile_input').click();
@@ -1147,7 +1647,9 @@ document.addEventListener('input', e => {
   const i = el.getAttribute('data-i');
 
   if(f === 'w' || f === 'r'){
+    if(!isValidISODate(ui.date)) return; // refuse writes under invalid date keys
     const idx = parseInt(i, 10);
+    if(!Number.isInteger(idx) || idx < 0) return;
     if(!S.logs[ui.date]) S.logs[ui.date] = {};
     if(!S.logs[ui.date][id]) S.logs[ui.date][id] = {sets:[], note:''};
     
@@ -1164,7 +1666,19 @@ document.addEventListener('input', e => {
       if(valid) S.logs[ui.date][id].sets[idx][f] = value;
       else if(f === 'r') S.logs[ui.date][id].sets[idx][f] = '';
     }
-    saveState();
+    // Debounced persist to avoid race conditions on rapid typing
+    saveState(320);
+
+    // Visual Dimming Check for the Row
+    const row = el.closest('.row');
+    if(row) {
+      const wInput = row.querySelector('[data-f="w"]');
+      const rInput = row.querySelector('[data-f="r"]');
+      const wVal = wInput ? wInput.value.trim() : '';
+      const rVal = rInput ? rInput.value.trim() : '';
+      if(wVal !== '' && rVal !== '') row.classList.add('set-done');
+      else row.classList.remove('set-done');
+    }
 
     if(f === 'r' && el.value){
       const setObj = S.logs[ui.date][id].sets[idx];
@@ -1172,10 +1686,11 @@ document.addEventListener('input', e => {
     }
   }
   else if(f === 'note'){
+    if(!isValidISODate(ui.date)) return;
     if(!S.logs[ui.date]) S.logs[ui.date] = {};
     if(!S.logs[ui.date][id]) S.logs[ui.date][id] = {sets:[], note:''};
     S.logs[ui.date][id].note = el.value;
-    saveState();
+    saveState(400);
   }
   else if(f === 'bg' || f === 'card' || f === 'acc' || f === 'ink' || f === 'up' || f === 'down'){
     T[f] = el.value;
@@ -1186,13 +1701,46 @@ document.addEventListener('input', e => {
 
 document.addEventListener('change', e => {
   if(e.target.id === 'date'){
-    ui.date = e.target.value;
-    ui.day = dayFor(ui.date);
-    render();
+    const candidate = e.target.value;
+    if(isValidISODate(candidate)){
+      ui.date = candidate;
+      ui.day = dayFor(ui.date);
+      render();
+    } else {
+      // Revert the control to the last known-good date
+      e.target.value = ui.date;
+    }
   }
   else if(e.target.id === 'psel'){
     ui.prog = e.target.value;
     render();
+  }
+  else if(e.target.id === 's_alarm') {
+    document.getElementById('custom-audio-wrap').style.display = e.target.value === 'custom' ? 'block' : 'none';
+    T.alarmType = e.target.value;
+    saveTheme();
+  }
+  else if(e.target.id === 'c_glass') {
+    haptic(15);
+    T.glass = e.target.checked;
+    saveTheme();
+    applyTheme();
+  }
+  else if(e.target.id === 'custom-audio-file'){
+    const file = e.target.files[0];
+    if(!file) return;
+    if(file.size > 500 * 1024) {
+      alert('File too large! Please choose a sound under 500KB to ensure smooth backups.');
+      e.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = function(evt){
+      T.customAlarmData = evt.target.result;
+      saveTheme();
+      alert('Custom sound saved!');
+    };
+    reader.readAsDataURL(file);
   }
   else if(e.target.id === 'impfile_input'){
     const file = e.target.files[0];
@@ -1201,21 +1749,33 @@ document.addEventListener('change', e => {
     reader.onload = function(evt){
       const content = evt.target.result;
       try{
-        if(file.name.endsWith('.json') || content.trim().startsWith('{')){
+        const backupStart='LIFTLOG_BACKUP_JSON_BEGIN';
+        const backupEnd='LIFTLOG_BACKUP_JSON_END';
+        if(content.includes(backupStart) && content.includes(backupEnd)){
+          const payload=content.split(backupStart)[1].split(backupEnd)[0].trim();
+          const o=JSON.parse(payload);
+          if(!o || !o.routines || !o.logs) throw new Error('Invalid Lift Log TXT backup.');
+          S=o;
+          normalizeLogNumbers(S);
+          if(o.theme){ T={...DEFT,...o.theme}; saveTheme(); applyTheme(); }
+        } else if(file.name.toLowerCase().endsWith('.json') || content.trim().startsWith('{')){
           const o = JSON.parse(content);
           if(o.routines && o.logs){
             S = o;
             normalizeLogNumbers(S);
             if(o.theme){ T = {...DEFT, ...o.theme}; saveTheme(); applyTheme(); }
-          }
-        } else if(file.name.endsWith('.csv') || content.includes(',')) {
+          } else throw new Error('Invalid JSON backup.');
+        } else if(file.name.toLowerCase().endsWith('.csv') || content.includes(',')) {
           const parsed = parseCSVLogs(content);
           S.logs = { ...S.logs, ...parsed };
+          normalizeLogNumbers(S);
         } else {
           const parsed = parseTXTLogs(content);
           S.logs = { ...S.logs, ...parsed };
+          normalizeLogNumbers(S);
         }
-        saveState();
+        pruneArchivedExercises();
+        saveState(0);
         render();
         document.getElementById('bkmsg').textContent = 'Data imported successfully!';
         alert('Data imported successfully!');
@@ -1230,7 +1790,6 @@ document.addEventListener('change', e => {
   }
 });
 
-// Global crash protection: show recovery options without clearing saved workout data.
 let errorDialogOpen=false;
 function showCrashDialog(message, detail=''){
   if(errorDialogOpen) return;
@@ -1253,8 +1812,28 @@ window.addEventListener('unhandledrejection', e=>{
 window.onload = function(){
   S = loadState();
   T = loadTheme();
+  // Hygiene pass on startup
+  if(pruneArchivedExercises()) saveState(0);
+  // Ensure current date is valid
+  ui.date = safeDate(ui.date);
+  ui.day = dayFor(ui.date);
   render();
 };
+
+// Flush pending debounced writes and stop timers when the page is hidden or unloading
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'hidden'){
+    if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; saveStateImmediate(); }
+  }
+});
+window.addEventListener('beforeunload', ()=>{
+  if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; saveStateImmediate(); }
+  stopTimer();
+});
+window.addEventListener('pagehide', ()=>{
+  if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; saveStateImmediate(); }
+  stopTimer();
+});
 </script>
 </body>
 </html>
