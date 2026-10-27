@@ -1,6 +1,25 @@
 <!--
-  Lift Log version: 1.3.3
-  Maintenance note: Bug-fix release – debounced persistence, date validation, safer PR detection, timer cleanup, reorder guards, storage hygiene, and archived-exercise pruning.
+  LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
+  Current version: 1.3.6
+
+  Instructions for future AI-assisted edits:
+  1. Keep this version declaration as the first content in the file.
+  2. For every new release, increment the version and update the change log below with a concise, specific list of additions, fixes, and behavior changes.
+  3. Preserve existing functionality unless a change is explicitly required, and test relevant behavior before delivering the file.
+  4. Keep the version shown in the application interface synchronized with this header.
+  5. End the file with an explicit end-of-file comment containing the same version number as this header and the interface.
+  6. Never claim a test passed unless it was actually run; clearly disclose any testing limitations.
+
+  Version 1.3.6 change log:
+  - Fixed ISO date validation using UTC so valid dates during daylight-saving time are not rejected on import or excluded from weekly graphs.
+
+  Version 1.3.5 change log:
+  - Added favicon and Apple touch icon references for a custom app picture at ./icon.png. Place icon.png beside this HTML file in the GitHub Pages repository.
+  - Fixed TXT/CSV imports replacing unrelated exercises logged on the same date; imported exercise records now merge by date and exercise ID.
+  - Added robust CSV quoting/parsing for commas, quotation marks, and multiline notes; preserved numeric zero values.
+  - Preserved unknown imported exercise names and archived history, including note-only or zero-weight records.
+  - Made JSON backup data complete and editable for restore, and validated imported backups before replacing saved state.
+  - Improved legacy TXT note-only import and made export date counts more meaningful.
 -->
 <!doctype html>
 <html lang="en">
@@ -12,6 +31,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Lift Log">
 <meta name="theme-color" content="#141413">
+<!-- Custom app icon: place icon.png in the same directory as this HTML file. -->
+<link rel="icon" type="image/png" href="./icon.png">
+<link rel="apple-touch-icon" href="./icon.png">
 <title>Lift Log - Workout & Progress Tracker</title>
 <style>
 :root{
@@ -422,10 +444,11 @@ function warn(){
   }
 }
 
-/* Strict ISO date validation (YYYY-MM-DD) */
+/* Strict ISO date validation (YYYY-MM-DD). Use UTC so local timezone/DST
+   offsets cannot reject valid calendar dates such as UK summer dates. */
 function isValidISODate(str){
   if(typeof str !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return false;
-  const d = new Date(str + 'T00:00:00');
+  const d = new Date(str + 'T00:00:00Z');
   return !isNaN(d.getTime()) && d.toISOString().slice(0,10) === str;
 }
 function safeDate(str, fallback){
@@ -503,7 +526,7 @@ function exList(){
   getPlan().forEach(d=>d.ex.forEach(e=>o.push({...e,day:d.name})));
   const activeIds=new Set(o.map(e=>e.id));
   Object.entries(S.archivedExercises||{}).forEach(([id,e])=>{
-    if(!activeIds.has(id) && Object.values(S.logs||{}).some(day=>day&&day[id]&&filled(day[id])))
+    if(!activeIds.has(id) && Object.values(S.logs||{}).some(day=>day&&day[id]&&hasExerciseHistory(day[id])))
       o.push({...e,id,day:'Archived exercise'});
   });
   return o;
@@ -514,7 +537,7 @@ function pruneArchivedExercises(){
   if(!S.archivedExercises) return false;
   let changed = false;
   Object.keys(S.archivedExercises).forEach(id=>{
-    const stillHasHistory = Object.values(S.logs||{}).some(day=>day&&day[id]&&filled(day[id]));
+    const stillHasHistory = Object.values(S.logs||{}).some(day=>day&&day[id]&&hasExerciseHistory(day[id]));
     if(!stillHasHistory){
       delete S.archivedExercises[id];
       changed = true;
@@ -1041,7 +1064,7 @@ function vSet(){
 
   h+=`<div class="card">
     <h3>Backup & Export</h3>
-    <textarea id="bk" readonly style="margin-top:8px">${esc(JSON.stringify({routines:S.routines, logs:S.logs, theme:T}))}</textarea>
+    <textarea id="bk" style="margin-top:8px" spellcheck="false">${esc(JSON.stringify({routines:S.routines, logs:S.logs, archivedExercises:S.archivedExercises||{}, activeRoutine:S.activeRoutine, theme:T},null,2))}</textarea>
     <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
       <button class="btn small" data-act="copy">Copy JSON</button>
       <button class="btn small acc" data-act="restore">Restore JSON</button>
@@ -1053,48 +1076,112 @@ function vSet(){
     <div id="bkmsg" class="meta" style="margin-top:6px"></div>
   </div>`;
 
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.3.3</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.3.6</div></div>`;
 
   return h;
 }
 
 // Helpers for parsing imported CSV and TXT files
-function findExIdByName(name) {
-  const allEx = exList();
-  const cleanName = name.trim().toLowerCase();
-  const match = allEx.find(e => e.name.toLowerCase() === cleanName);
-  return match ? match.id : ('ex_' + cleanName.replace(/[^a-z0-9]/g, '_'));
+function hasExerciseHistory(record) {
+  if (!record || typeof record !== 'object') return false;
+  if (typeof record.note === 'string' && record.note.trim()) return true;
+  return Array.isArray(record.sets) && record.sets.some(set => {
+    if (!set || typeof set !== 'object') return false;
+    const hasW = set.w !== '' && set.w !== null && set.w !== undefined;
+    const hasR = set.r !== '' && set.r !== null && set.r !== undefined;
+    return hasW || hasR;
+  });
 }
+function findExIdByName(name) {
+  const cleanName = String(name ?? '').trim();
+  const normalized = cleanName.toLocaleLowerCase();
+  if (!cleanName) return 'ex_unknown';
+  const allEx = [];
+  Object.values(S.routines || {}).forEach(plan => (plan || []).forEach(day => (day.ex || []).forEach(ex => allEx.push(ex))));
+  const activeMatch = allEx.find(ex => String(ex.name || '').trim().toLocaleLowerCase() === normalized);
+  if (activeMatch) return activeMatch.id;
+  const archived = S.archivedExercises || {};
+  const archivedMatch = Object.entries(archived).find(([, ex]) => String(ex?.name || '').trim().toLocaleLowerCase() === normalized);
+  if (archivedMatch) return archivedMatch[0];
 
+  // Keep unfamiliar imported exercises identifiable instead of storing only a generated ID.
+  let base = 'imported_' + (cleanName.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48) || 'exercise');
+  let id = base, suffix = 2;
+  while ((allEx.some(ex => ex.id === id) || Object.prototype.hasOwnProperty.call(archived, id)) && String(archived[id]?.name || '').toLocaleLowerCase() !== normalized) id = `${base}_${suffix++}`;
+  if (!S.archivedExercises) S.archivedExercises = {};
+  if (!S.archivedExercises[id]) S.archivedExercises[id] = {name: cleanName, sets: 3, range: '8-12'};
+  return id;
+}
+function parseCSVRows(text) {
+  const rows = [];
+  let row = [], field = '', quoted = false;
+  const input = String(text ?? '').replace(/^\uFEFF/, '');
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (quoted) {
+      if (ch === '"' && input[i + 1] === '"') { field += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else field += ch;
+    } else if (ch === '"') {
+      quoted = true;
+    } else if (ch === ',') {
+      row.push(field); field = '';
+    } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && input[i + 1] === '\n') i++;
+      row.push(field); rows.push(row); row = []; field = '';
+    } else field += ch;
+  }
+  if (quoted) throw new Error('CSV contains an unclosed quoted field.');
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
 function parseCSVLogs(text) {
-  const lines = text.split(/\r?\n/);
+  const rows = parseCSVRows(text);
   const logs = {};
-  if (lines.length < 2) return logs;
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    const parts = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || line.split(',');
-    if (parts.length < 5) continue;
-    const date = parts[0].replace(/"/g, '').trim();
-    const exName = parts[1].replace(/"/g, '').trim();
-    const setIdx = parseInt(parts[2].replace(/"/g, '').trim(), 10) - 1;
-    const weight = parts[3].replace(/"/g, '').trim();
-    const reps = parts[4].replace(/"/g, '').trim();
-    const note = parts[5] ? parts[5].replace(/"/g, '').trim() : '';
-
+  if (rows.length < 2) return logs;
+  const header = rows[0].map(v => String(v).trim().toLowerCase());
+  const col = name => header.indexOf(name);
+  const dateCol = col('date'), exCol = col('exercise'), setCol = col('set'), weightCol = col('weight'), repsCol = col('reps'), noteCol = col('note');
+  if (dateCol < 0 || exCol < 0) throw new Error('CSV must contain Date and Exercise columns.');
+  rows.slice(1).forEach(parts => {
+    if (!parts.some(v => String(v).trim() !== '')) return;
+    const date = String(parts[dateCol] ?? '').trim();
+    const exName = String(parts[exCol] ?? '').trim();
+    if (!isValidISODate(date) || !exName) return;
+    const rawSet = setCol < 0 ? '1' : String(parts[setCol] ?? '').trim();
+    const setNo = rawSet === '' ? 0 : Number(rawSet);
+    const rawWeight = weightCol < 0 ? '' : String(parts[weightCol] ?? '').trim();
+    const rawReps = repsCol < 0 ? '' : String(parts[repsCol] ?? '').trim();
+    const note = noteCol < 0 ? '' : String(parts[noteCol] ?? '');
     const exId = findExIdByName(exName);
     if (!logs[date]) logs[date] = {};
-    if (!logs[date][exId]) logs[date][exId] = { sets: [], note: '' };
-
-    while (logs[date][exId].sets.length <= setIdx) {
-      logs[date][exId].sets.push({ w: '', r: '' });
+    if (!logs[date][exId]) logs[date][exId] = {sets: [], note: ''};
+    if (Number.isInteger(setNo) && setNo > 0 && setNo <= 100) {
+      while (logs[date][exId].sets.length < setNo) logs[date][exId].sets.push({w:'', r:''});
+      const weight = rawWeight !== '' && Number.isFinite(Number(rawWeight)) && Number(rawWeight) >= 0 ? Number(rawWeight) : '';
+      const reps = rawReps !== '' && Number.isInteger(Number(rawReps)) && Number(rawReps) >= 0 ? Number(rawReps) : '';
+      logs[date][exId].sets[setNo - 1] = {w: weight, r: reps};
     }
-    logs[date][exId].sets[setIdx] = { w: weight !== '' && Number.isFinite(Number(weight)) && Number(weight) >= 0 ? Number(weight) : '', r: reps !== '' && Number.isInteger(Number(reps)) && Number(reps) >= 0 ? Number(reps) : '' };
-    if (note) logs[date][exId].note = note;
-  }
+    if (note !== '') logs[date][exId].note = note;
+  });
   return logs;
 }
-
+function mergeImportedLogs(existing, incoming) {
+  const merged = {...(existing || {})};
+  Object.entries(incoming || {}).forEach(([date, exercises]) => {
+    if (!isValidISODate(date) || !exercises || typeof exercises !== 'object') return;
+    merged[date] = {...(merged[date] || {})};
+    Object.entries(exercises).forEach(([id, record]) => {
+      // Replace only the matching date/exercise; leave all other exercises intact.
+      merged[date][id] = record;
+    });
+  });
+  return merged;
+}
+function csvEscape(value) {
+  const text = value === null || value === undefined ? '' : String(value);
+  return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+}
 function exportTimestamp(date=new Date()) {
   const pad=n=>String(n).padStart(2,'0');
   return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
@@ -1115,7 +1202,7 @@ function createTextBackup() {
   const lines=[
     'LIFT LOG — FULL TEXT BACKUP',
     `Exported: ${new Date().toLocaleString()}`,
-    `Workout dates: ${Object.keys(S.logs||{}).length}`,
+    `Workout dates with records: ${Object.keys(S.logs||{}).filter(date=>S.logs[date]&&Object.values(S.logs[date]).some(hasExerciseHistory)).length}`,
     '',
     'WORKOUT PROGRESS'
   ];
@@ -1158,11 +1245,11 @@ function parseTXTLogs(text) {
         const exName = line.replace(/exercise:/i, '').trim();
         currentExId = findExIdByName(exName);
       } else if (currentExId && line.toLowerCase().startsWith('set')) {
-        const match = line.match(/Set\s+(\d+):\s*([\d.]+)\s*kg\s*×\s*(\d+)\s*reps/i);
+        const match = line.match(/Set\s+(\d+):\s*([\d.]+|—)\s*kg\s*×\s*(\d+|—)\s*reps/i);
         if (match) {
           const setIdx = parseInt(match[1], 10) - 1;
-          const weight = Number(match[2]);
-          const reps = Number(match[3]);
+          const weight = match[2] === '—' ? '' : Number(match[2]);
+          const reps = match[3] === '—' ? '' : Number(match[3]);
 
           if (!logs[date]) logs[date] = {};
           if (!logs[date][currentExId]) logs[date][currentExId] = { sets: [], note: '' };
@@ -1174,9 +1261,9 @@ function parseTXTLogs(text) {
         }
       } else if (currentExId && line.toLowerCase().startsWith('note:')) {
         const note = line.replace(/note:/i, '').trim();
-        if (logs[date] && logs[date][currentExId]) {
-          logs[date][currentExId].note = note;
-        }
+        if (!logs[date]) logs[date] = {};
+        if (!logs[date][currentExId]) logs[date][currentExId] = {sets: [], note: ''};
+        logs[date][currentExId].note = note;
       }
     }
   });
@@ -1600,17 +1687,17 @@ document.addEventListener('click', e => {
   else if(a==='restore'){
     try{
       const o = JSON.parse(document.getElementById('bk').value);
-      if(o.routines && o.logs){
-        S = o;
-        normalizeLogNumbers(S);
-        if(o.theme){ T = {...DEFT, ...o.theme}; saveTheme(); }
-        pruneArchivedExercises();
-        saveState(0);
-        render();
-        document.getElementById('bkmsg').textContent = 'Restored successfully!';
-      }
+      if(!o || !o.routines || typeof o.routines !== 'object' || !o.logs || typeof o.logs !== 'object') throw new Error('Backup must contain routines and logs.');
+      const nextState = {...o, archivedExercises:o.archivedExercises||{}, activeRoutine:o.activeRoutine||S.activeRoutine};
+      S = nextState;
+      normalizeLogNumbers(S);
+      if(o.theme){ T = {...DEFT, ...o.theme}; saveTheme(); }
+      pruneArchivedExercises();
+      saveState(0);
+      render();
+      document.getElementById('bkmsg').textContent = 'Restored successfully!';
     }catch(x){
-      document.getElementById('bkmsg').textContent = 'Invalid JSON format.';
+      document.getElementById('bkmsg').textContent = 'Invalid JSON format: ' + (x.message || 'check the backup data.');
     }
   }
   else if(a==='exptxt'){
@@ -1619,18 +1706,19 @@ document.addEventListener('click', e => {
     document.getElementById('bkmsg').textContent=`TXT backup exported (${stamp}). You can read it directly or import it later to restore your data.`;
   }
   else if(a==='expcsv'){
-    let csv='Date,Exercise,Set,Weight,Reps,Note\n';
+    const rows=[['Date','Exercise','Set','Weight','Reps','Note']];
     const allEx=exList();
-    Object.keys(S.logs).forEach(d=>{
-      Object.keys(S.logs[d]).forEach(exId=>{
-        const r=S.logs[d][exId];
+    Object.keys(S.logs||{}).sort().forEach(d=>{
+      Object.keys(S.logs[d]||{}).forEach(exId=>{
+        const r=S.logs[d][exId]||{};
         const exItem=allEx.find(x=>x.id===exId);
-        const exName=exItem?exItem.name:exId;
-        r.sets.forEach((s,idx)=>{
-          csv+=`"${d}","${exName}",${idx+1},"${s.w||''}","${s.r||''}","${r.note||''}"\n`;
-        });
+        const exName=exItem?exItem.name:(S.archivedExercises?.[exId]?.name||exId);
+        const sets=Array.isArray(r.sets)?r.sets:[];
+        if(!sets.length){ rows.push([d,exName,'','','',r.note||'']); return; }
+        sets.forEach((set,idx)=>rows.push([d,exName,idx+1,set?.w ?? '',set?.r ?? '',r.note||'']));
       });
     });
+    const csv=rows.map(row=>row.map(csvEscape).join(',')).join('\r\n')+'\r\n';
     const stamp=exportTimestamp();
     downloadTextFile(csv,`LiftLog_Progress_${stamp}.csv`,'text/csv;charset=utf-8');
     document.getElementById('bkmsg').textContent=`CSV exported (${stamp}).`;
@@ -1754,24 +1842,24 @@ document.addEventListener('change', e => {
         if(content.includes(backupStart) && content.includes(backupEnd)){
           const payload=content.split(backupStart)[1].split(backupEnd)[0].trim();
           const o=JSON.parse(payload);
-          if(!o || !o.routines || !o.logs) throw new Error('Invalid Lift Log TXT backup.');
-          S=o;
+          if(!o || !o.routines || typeof o.routines !== 'object' || !o.logs || typeof o.logs !== 'object') throw new Error('Invalid Lift Log TXT backup.');
+          S={...o, archivedExercises:o.archivedExercises||{}, activeRoutine:o.activeRoutine||S.activeRoutine};
           normalizeLogNumbers(S);
           if(o.theme){ T={...DEFT,...o.theme}; saveTheme(); applyTheme(); }
         } else if(file.name.toLowerCase().endsWith('.json') || content.trim().startsWith('{')){
           const o = JSON.parse(content);
-          if(o.routines && o.logs){
-            S = o;
+          if(o && o.routines && typeof o.routines === 'object' && o.logs && typeof o.logs === 'object'){
+            S = {...o, archivedExercises:o.archivedExercises||{}, activeRoutine:o.activeRoutine||S.activeRoutine};
             normalizeLogNumbers(S);
             if(o.theme){ T = {...DEFT, ...o.theme}; saveTheme(); applyTheme(); }
-          } else throw new Error('Invalid JSON backup.');
-        } else if(file.name.toLowerCase().endsWith('.csv') || content.includes(',')) {
+          } else throw new Error('Invalid JSON backup: routines and logs are required.');
+        } else if(file.name.toLowerCase().endsWith('.csv')) {
           const parsed = parseCSVLogs(content);
-          S.logs = { ...S.logs, ...parsed };
+          S.logs = mergeImportedLogs(S.logs, parsed);
           normalizeLogNumbers(S);
         } else {
           const parsed = parseTXTLogs(content);
-          S.logs = { ...S.logs, ...parsed };
+          S.logs = mergeImportedLogs(S.logs, parsed);
           normalizeLogNumbers(S);
         }
         pruneArchivedExercises();
@@ -1781,8 +1869,8 @@ document.addEventListener('change', e => {
         alert('Data imported successfully!');
       }catch(err){
         console.error(err);
-        document.getElementById('bkmsg').textContent = 'Failed to parse import file.';
-        alert('Failed to parse import file.');
+        document.getElementById('bkmsg').textContent = 'Import failed: ' + (err.message || 'could not parse file.');
+        alert('Import failed: ' + (err.message || 'could not parse file.'));
       }
       e.target.value = '';
     };
@@ -1837,3 +1925,5 @@ window.addEventListener('pagehide', ()=>{
 </script>
 </body>
 </html>
+
+<!-- END OF FILE — LIFT LOG VERSION 1.3.6 -->
