@@ -1,6 +1,6 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.3.19
+  Current version: 1.3.21
 
   Instructions for future AI-assisted edits:
   1. Keep this version declaration as the first content in the file.
@@ -9,7 +9,6 @@
   4. Keep the version shown in the application interface synchronized with this header.
   5. End the file with an explicit end-of-file comment containing the same version number as this header and the interface.
   6. Never claim a test passed unless it was actually run; clearly disclose any testing limitations.
-
 
   Version numbering (Major.Minor.Patch), e.g. 1.3.20:
   - Major: breaking change — storage/data format, storage key, or redesign that may be incompatible with existing backups without migration.
@@ -21,6 +20,12 @@
   - If the release only fixes or polishes, bump Patch.
   - Always keep the header version, the in-app Settings version string, and the end-of-file version comment identical.
   - Every release must add a concise changelog entry under the new version describing what changed.
+
+  Version 1.3.21 change log:
+  - Fixed: rest-timer dock handle appeared on top of the card instead of the side. Glass mode forced position:relative on all timer children, which broke absolute side placement. Handle is a side tab when docked; body fades when docked.
+
+  Version 1.3.20 change log:
+  - Performance for large histories (normal short histories unchanged): cache streak / weekly series / exercise sessions until logs change; Progress overall chart defaults to last 52 weeks when longer; per-exercise chart defaults to last 40 sessions when longer; session table shows latest 25 with “Show older”; optional “Show all” controls; soft storage warning near ~70% quota; Settings can export-trim logs before a date (after confirmation).
 
   Version 1.3.19 change log:
   - Log exercise reorder: the dragged card follows the finger; neighbours animate into place with FLIP transitions instead of jumping when the insertion slot changes. Edge auto-scroll is preserved.
@@ -205,7 +210,8 @@ input[type=color]{width:56px;height:36px;padding:2px;cursor:pointer}
   background: linear-gradient(135deg, rgba(255,255,255,0.07) 0%, transparent 50%);
   pointer-events: none; z-index: 0;
 }
-.glass-mode .timer-widget > * { position: relative; z-index: 1; }
+/* Do not force the dock handle into normal flow — it must stay position:absolute on the side. */
+.glass-mode .timer-widget > *:not(.timer-dock-handle) { position: relative; z-index: 1; }
 
 .card h3{margin:0;font-size:16px;display:flex;align-items:center;justify-content:space-between}
 .drag-handle{border:0;background:transparent;color:var(--mute);font-size:21px;line-height:1;padding:3px 8px 3px 0;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
@@ -361,15 +367,16 @@ svg{width:100%;height:auto;display:block}
   width: 240px; max-width: 90vw;
   touch-action:none; user-select:none; -webkit-user-select:none;
   cursor:grab; will-change: left, top;
+  overflow: visible;
 }
 .timer-widget:active{cursor:grabbing}
 .timer-widget.dragging {
   box-shadow: 0 24px 50px rgba(0,0,0,0.75) !important;
 }
-/* Dock is position-based (left/top). Classes only drive chrome opacity/handle. */
+/* Dock is position-based (left/top). Classes drive side handle + body fade. */
 .timer-widget.docked-left,
 .timer-widget.docked-right {
-  opacity: 0.92;
+  opacity: 0.95;
 }
 .glass-mode .timer-widget.docked-left, .glass-mode .timer-widget.docked-right {
   opacity: 1;
@@ -377,16 +384,26 @@ svg{width:100%;height:auto;display:block}
 .timer-widget.docked-left .timer-body,
 .timer-widget.docked-right .timer-body {
   pointer-events: none;
+  opacity: 0.12;
 }
 .timer-dock-handle{
-  position:absolute; top:50%; transform:translateY(-50%);
-  width:28px; height:48px; background:var(--acc); color:var(--onacc);
+  position:absolute !important;
+  top:50%;
+  left:auto;
+  right:auto;
+  transform:translateY(-50%);
+  width:28px; height:52px; background:var(--acc); color:var(--onacc);
   display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:16px;
-  border-radius:8px; opacity:0; pointer-events:none; transition:opacity 0.15s ease;
-  z-index: 10;
+  border-radius:10px; opacity:0; pointer-events:none; transition:opacity 0.15s ease;
+  z-index: 20;
+  box-shadow:0 4px 12px rgba(0,0,0,.35);
 }
-.timer-widget.docked-left .timer-dock-handle{right:4px; opacity:1; pointer-events:auto;}
-.timer-widget.docked-right .timer-dock-handle{left:4px; opacity:1; pointer-events:auto;}
+.timer-widget.docked-left .timer-dock-handle{
+  left:auto; right:4px; opacity:1; pointer-events:auto;
+}
+.timer-widget.docked-right .timer-dock-handle{
+  right:auto; left:4px; opacity:1; pointer-events:auto;
+}
 
 .timer-circle-wrap{position:relative;width:120px;height:120px}
 .timer-svg{width:100%;height:100%;transform:rotate(-90deg)}
@@ -625,6 +642,10 @@ normalizeLogNumbers(S);
 
 /* Debounced persistence to reduce race conditions on rapid input */
 let _saveTimer = null;
+/* Derived-data cache: invalid on any log write. Short histories pay almost nothing. */
+const PERF={weeklyCap:52, sessionCap:40, tablePage:25, storageSoftPct:70};
+let _derived={weekly:{}, sessions:null, streak:null};
+function invalidateDerived(){ _derived={weekly:{}, sessions:null, streak:null}; }
 function saveStateImmediate(){
   try{
     localStorage.setItem(KEY, JSON.stringify(S));
@@ -632,6 +653,7 @@ function saveStateImmediate(){
   }catch(e){
     storageOK = false;
   }
+  invalidateDerived();
   warn();
 }
 function saveState(debounceMs){
@@ -656,6 +678,13 @@ function warn(){
   }
   if(!storageOK){
     h += '<div class="warn">Private mode or storage quota exceeded: data may not persist when closing the page.</div>';
+  } else {
+    try{
+      const soft=new Blob([JSON.stringify(S.logs||{})]).size/(5*1024*1024)*100;
+      if(soft>=PERF.storageSoftPct){
+        h += '<div class="warn">History is using about '+Math.round(soft)+'% of the typical browser storage budget. Export a backup, and consider trimming old logs in Settings.</div>';
+      }
+    }catch(_){}
   }
   el.innerHTML = h;
 }
@@ -728,7 +757,7 @@ const dayIdx=d=>{
 
 const dayFor=d=>dayIdx(d);
 const now=new Date();
-const ui={tab:'home',date:iso(now),day:0,extra:{},homeMetric:'1rm',homeGraphType:T.homeGraphType||'line',progGraphType:T.progGraphType||'line',cm:{y:now.getFullYear(),m:now.getMonth()}};
+const ui={tab:'home',date:iso(now),day:0,extra:{},homeMetric:'1rm',homeGraphType:T.homeGraphType||'line',progGraphType:T.progGraphType||'line',cm:{y:now.getFullYear(),m:now.getMonth()},overallShowAll:false,progShowAll:false,progTableAll:false};
 let lastRenderedTab=null;
 let lastRenderedDate=null;
 let lastRenderedDay=null;
@@ -811,6 +840,7 @@ function pruneArchivedExercises(){
 }
 
 function calcStreak(){
+  if(_derived.streak!==null) return _derived.streak;
   let streak=0, d=new Date();
   for(let i=0;i<60;i++){
     const ds=iso(d);
@@ -822,12 +852,15 @@ function calcStreak(){
     }
     d.setDate(d.getDate()-1);
   }
+  _derived.streak=streak;
   return streak;
 }
 
 function getWeeklyProgressData(metric){
+  const key=metric||'1rm';
+  if(_derived.weekly[key]) return _derived.weekly[key];
   const dates=Object.keys(S.logs||{}).filter(isValidISODate).sort();
-  if(!dates.length) return [];
+  if(!dates.length){ _derived.weekly[key]=[]; return []; }
   
   const weeks={};
   dates.forEach(d=>{
@@ -838,7 +871,7 @@ function getWeeklyProgressData(metric){
     
     if(!weeks[mon]) weeks[mon]={sum1RM:0, count1RM:0, sumVol:0, sumTopW:0, countTopW:0};
     
-    Object.keys(S.logs[d]).forEach(exId=>{
+    Object.keys(S.logs[d]||{}).forEach(exId=>{
       const r=S.logs[d][exId];
       if(filled(r)){
         const rm=est1RM(r);
@@ -853,14 +886,16 @@ function getWeeklyProgressData(metric){
   });
 
   const wKeys=Object.keys(weeks).sort();
-  return wKeys.map(w=>{
+  const out=wKeys.map(w=>{
     const item=weeks[w];
     let val=0;
-    if(metric==='1rm') val = item.count1RM ? Math.round(item.sum1RM / item.count1RM) : 0;
-    else if(metric==='vol') val = Math.round(item.sumVol);
-    else if(metric==='top') val = item.countTopW ? Math.round(item.sumTopW / item.countTopW) : 0;
+    if(key==='1rm') val = item.count1RM ? Math.round(item.sum1RM / item.count1RM) : 0;
+    else if(key==='vol') val = Math.round(item.sumVol);
+    else if(key==='top') val = item.countTopW ? Math.round(item.sumTopW / item.countTopW) : 0;
     return { week: w, val: val };
   });
+  _derived.weekly[key]=out;
+  return out;
 }
 
 let _audioCtx=null, _audioPrimed=false, _customAudioEl=null;
@@ -1174,6 +1209,7 @@ function splitDayName(n){ const p=String(n).split(' - '); return p.length>1?{day
 
 /* name -> {name, list:[{date, rm, w, r}]} best est. 1RM per session, oldest first */
 function exerciseSessions(){
+  if(_derived.sessions) return _derived.sessions;
   const names={};
   Object.values(S.routines||{}).forEach(pl=>(pl||[]).forEach(d=>(d.ex||[]).forEach(e=>{ names[e.id]=e.name; })));
   Object.entries(S.archivedExercises||{}).forEach(([i,e])=>{ if(!(i in names)) names[i]=e&&e.name; });
@@ -1195,6 +1231,7 @@ function exerciseSessions(){
       else x.list.push({date,...best});
     });
   });
+  _derived.sessions=out;
   return out;
 }
 function recentPRs(sessions,n){
@@ -1494,7 +1531,16 @@ function vProg(){
   if(!ui.prog||!all.find(e=>e.id===ui.prog))ui.prog=all[0].id;
   const e=all.find(x=>x.id===ui.prog);
 
-  const overallData=getWeeklyProgressData(ui.homeMetric||'1rm');
+  const overallFull=getWeeklyProgressData(ui.homeMetric||'1rm');
+  const overallCapped=!ui.overallShowAll && overallFull.length>PERF.weeklyCap;
+  const overallData=overallCapped?overallFull.slice(-PERF.weeklyCap):overallFull;
+  let overallNote='';
+  if(overallCapped){
+    overallNote=`<div class="meta" style="margin:6px 0">Showing last ${PERF.weeklyCap} weeks of ${overallFull.length}. <button class="btn small" data-act="progshow" data-v="overall">Show all</button></div>`;
+  } else if(ui.overallShowAll && overallFull.length>PERF.weeklyCap){
+    overallNote=`<div class="meta" style="margin:6px 0">Showing all ${overallFull.length} weeks. <button class="btn small" data-act="progshow" data-v="overall-less">Show recent</button></div>`;
+  }
+
   let h=`<div class="card" style="margin-bottom:12px">
     <h3>
       <span>Overall Progress</span>
@@ -1508,7 +1554,8 @@ function vProg(){
       <button class="btn small ${ui.homeMetric==='vol'?'acc':''}" data-act="sethomemetric" data-v="vol">Volume Load</button>
       <button class="btn small ${ui.homeMetric==='top'?'acc':''}" data-act="sethomemetric" data-v="top">Avg Top Weight</button>
     </div>
-    ${renderStockChart(overallData,ui.homeGraphType||'line')}
+    ${overallNote}
+    <div id="prog-overall-chart">${overallData.length?renderStockChart(overallData,ui.homeGraphType||'line'):'<div class="meta">Not enough data yet.</div>'}</div>
   </div>`;
 
   const seenNames=new Set(), selName=normName(e.name);
@@ -1526,6 +1573,15 @@ function vProg(){
   
   const tops=ds.map(d=>topW(recAt(d)));
   const cur=tops[tops.length-1],pr=Math.max(...tops),diff=cur-tops[0];
+  const sessCapped=!ui.progShowAll && ds.length>PERF.sessionCap;
+  const dsChart=sessCapped?ds.slice(-PERF.sessionCap):ds;
+  const topsChart=sessCapped?tops.slice(-PERF.sessionCap):tops;
+  let sessNote='';
+  if(sessCapped){
+    sessNote=`<div class="meta" style="margin:6px 0">Chart: last ${PERF.sessionCap} of ${ds.length} sessions. <button class="btn small" data-act="progshow" data-v="sess">Show all</button></div>`;
+  } else if(ui.progShowAll && ds.length>PERF.sessionCap){
+    sessNote=`<div class="meta" style="margin:6px 0">Chart: all ${ds.length} sessions. <button class="btn small" data-act="progshow" data-v="sess-less">Show recent</button></div>`;
+  }
   
   h+=`<div class="card">
     <h3>
@@ -1541,10 +1597,20 @@ function vProg(){
       <div class="stat"><b>${pr} kg</b><span>Best</span></div>
       <div class="stat"><b>${diff>0?'+':''}${Math.round(diff*10)/10} kg</b><span>Change</span></div>
     </div>
-    ${chart(ds,tops,ui.progGraphType||'line')}
+    ${sessNote}
+    <div id="prog-ex-chart">${chart(dsChart,topsChart,ui.progGraphType||'line')}</div>
   </div>`;
-  
-  h+='<div class="card wrap"><table><tr><th>Date</th><th>Sets (kg×reps)</th><th>Top</th></tr>'+ds.slice().reverse().map(d=>{const r=recAt(d);return`<tr><td>${fmt(d)}</td><td>${esc(setsTxt(r))}${r.note?'<br><span class="meta">'+esc(r.note)+'</span>':''}</td><td>${topW(r)}</td></tr>`}).join('')+'</table></div>';
+
+  const rev=ds.slice().reverse();
+  const tableCapped=!ui.progTableAll && rev.length>PERF.tablePage;
+  const tableRows=tableCapped?rev.slice(0,PERF.tablePage):rev;
+  let tableNote='';
+  if(tableCapped){
+    tableNote=`<div class="meta" style="margin-bottom:8px">Latest ${PERF.tablePage} of ${rev.length} sessions. <button class="btn small" data-act="progshow" data-v="table">Show older</button></div>`;
+  } else if(ui.progTableAll && rev.length>PERF.tablePage){
+    tableNote=`<div class="meta" style="margin-bottom:8px">All ${rev.length} sessions. <button class="btn small" data-act="progshow" data-v="table-less">Show latest only</button></div>`;
+  }
+  h+='<div class="card wrap">'+tableNote+'<table><tr><th>Date</th><th>Sets (kg×reps)</th><th>Top</th></tr>'+tableRows.map(d=>{const r=recAt(d);return`<tr><td>${fmt(d)}</td><td>${esc(setsTxt(r))}${r.note?'<br><span class="meta">'+esc(r.note)+'</span>':''}</td><td>${topW(r)}</td></tr>`}).join('')+'</table></div>';
   return h;
 }
 
@@ -1611,9 +1677,14 @@ function vSet(){
 
   h+='<div class="card"><h3>Storage & Data</h3>'+
     `<div class="meta" style="margin-top:6px">History Log Size: <b>${storageKB} KB</b> (${storagePct}% of ~5MB quota)</div>`+
-    `<div style="width:100%;background:var(--bg);height:8px;border-radius:4px;overflow:hidden;margin:8px 0;border:1px solid var(--line)"><div style="width:${Math.max(2, storagePct)}%;background:${storagePct>80?'var(--down)':'var(--acc)'};height:100%"></div></div>`+
+    `<div style="width:100%;background:var(--bg);height:8px;border-radius:4px;overflow:hidden;margin:8px 0;border:1px solid var(--line)"><div style="width:${Math.max(2, storagePct)}%;background:${storagePct>80?'var(--down)':(storagePct>=PERF.storageSoftPct?'var(--acc)':'var(--acc)')};height:100%"></div></div>`+
     (()=>{let has=false;try{has=!!localStorage.getItem(KEY+'_corrupt')}catch(_){}return has?`<div class="meta" style="margin:8px 0">A recovery copy of previously unreadable data is stored in this browser.</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><button class="btn small" data-act="dlrecovery">Download recovery copy</button><button class="btn small" data-act="droprecovery">Delete recovery copy</button></div>`:''})()+
-    `<button class="btn small" data-act="clearhistory" style="background:var(--down);color:#fff;border:none;margin-top:6px">🗑️ Delete Workout History</button>`+
+    `<div class="meta" style="margin-top:10px">Trim old logs only after exporting a backup. Dates on or after the cut-off are kept.</div>`+
+    `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center">
+      <input type="date" id="trim-before" style="flex:1;min-width:140px">
+      <button class="btn small" data-act="trimlogs">Delete logs before date</button>
+    </div>`+
+    `<button class="btn small" data-act="clearhistory" style="background:var(--down);color:#fff;border:none;margin-top:10px">🗑️ Delete Workout History</button>`+
     '</div>';
 
   h+='<div class="card"><h3>Theme & Custom Colors</h3>'+
@@ -1648,7 +1719,7 @@ function vSet(){
     <div id="bkmsg" class="meta" style="margin-top:6px"></div>
   </div>`;
 
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.3.19</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.3.21</div></div>`;
 
   return h;
 }
@@ -1899,7 +1970,7 @@ function timerUndockTo(x, y){
   timerBox.style.transition = TIMER_EASE;
   timerBox.classList.remove('docked-left','docked-right');
   const body = timerBox.querySelector('.timer-body');
-  if(body) body.style.opacity = '1';
+  if(body) body.style.opacity = '';
   timerSetPos(x, timerClampY(y));
 }
 function timerSettleDock(side, y){
@@ -1910,7 +1981,9 @@ function timerSettleDock(side, y){
   timerBox.classList.add(side === 'left' ? 'docked-left' : 'docked-right');
   const arrow = document.getElementById('timer-dock-arrow');
   if(arrow) arrow.textContent = side === 'left' ? '›' : '‹';
-  timerBodyFade(x);
+  /* CSS handles body fade when docked; clear any inline drag fade. */
+  const body = timerBox.querySelector('.timer-body');
+  if(body) body.style.opacity = '';
   haptic(10);
 }
 
@@ -2472,6 +2545,33 @@ document.addEventListener('click', e => {
     saveTheme();
     render();
   }
+  else if(a==='progshow'){
+    if(v==='overall') ui.overallShowAll=true;
+    else if(v==='overall-less') ui.overallShowAll=false;
+    else if(v==='sess') ui.progShowAll=true;
+    else if(v==='sess-less') ui.progShowAll=false;
+    else if(v==='table') ui.progTableAll=true;
+    else if(v==='table-less') ui.progTableAll=false;
+    render();
+  }
+  else if(a==='trimlogs'){
+    const input=document.getElementById('trim-before');
+    const before=input&&input.value;
+    if(!isValidISODate(before)){
+      alert('Choose a valid date first. All logs strictly before that date will be deleted.');
+      return;
+    }
+    if(!confirm('Export a backup first if you have not already.\n\nPermanently delete all workout logs before '+before+'?\nLogs on or after that date are kept.')) return;
+    let removed=0;
+    Object.keys(S.logs||{}).forEach(d=>{
+      if(d<before){ delete S.logs[d]; removed++; }
+    });
+    pruneArchivedExercises();
+    invalidateDerived();
+    saveState(0);
+    alert(removed?('Removed logs from '+removed+' day(s).'):'No logs were before that date.');
+    render();
+  }
   else if(a==='cm'){
     let m = ui.cm.m + parseInt(v, 10);
     let y = ui.cm.y;
@@ -2711,6 +2811,8 @@ document.addEventListener('change', e => {
   }
   else if(e.target.id === 'psel'){
     ui.prog = e.target.value;
+    ui.progShowAll=false;
+    ui.progTableAll=false;
     render();
   }
   else if(e.target.id === 's_alarm') {
@@ -2834,4 +2936,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.3.19 -->
+</html><!-- END OF FILE — Lift Log version 1.3.21 -->
