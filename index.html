@@ -1,6 +1,6 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.3.18
+  Current version: 1.3.19
 
   Instructions for future AI-assisted edits:
   1. Keep this version declaration as the first content in the file.
@@ -9,6 +9,9 @@
   4. Keep the version shown in the application interface synchronized with this header.
   5. End the file with an explicit end-of-file comment containing the same version number as this header and the interface.
   6. Never claim a test passed unless it was actually run; clearly disclose any testing limitations.
+
+  Version 1.3.19 change log:
+  - Log exercise reorder: the dragged card follows the finger; neighbours animate into place with FLIP transitions instead of jumping when the insertion slot changes. Edge auto-scroll is preserved.
 
   Version 1.3.18 change log:
   - Export filenames put date/time first and use a short type suffix (e.g. 2026-10-29_143052_LL-bak.txt) so iOS truncation with "..." does not hide the identifying part of the name.
@@ -194,11 +197,23 @@ input[type=color]{width:56px;height:36px;padding:2px;cursor:pointer}
 
 .card h3{margin:0;font-size:16px;display:flex;align-items:center;justify-content:space-between}
 .drag-handle{border:0;background:transparent;color:var(--mute);font-size:21px;line-height:1;padding:3px 8px 3px 0;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
-.exercise-card.dragging{opacity:.72;transform:scale(.992);border-color:var(--acc);box-shadow:0 10px 28px rgba(0,0,0,.24);position:relative;z-index:2}
-.exercise-card.drop-target{border-top:3px solid var(--acc)}
-.exercise-card{touch-action:pan-y;transition:opacity .16s ease,transform .16s ease,border-color .16s ease,box-shadow .16s ease}
+.exercise-card.dragging{
+  opacity:1;border-color:var(--acc);
+  box-shadow:0 16px 36px rgba(0,0,0,.4);
+  z-index:200;pointer-events:none;
+  transition:none !important;
+}
+.exercise-card.drag-placeholder{
+  visibility:hidden;pointer-events:none;border-style:dashed;border-color:var(--acc);
+  background:transparent;box-shadow:none;opacity:.35;
+}
+.exercise-card.drag-shift{
+  transition:transform 0.22s cubic-bezier(0.22, 1, 0.36, 1) !important;
+  will-change:transform;
+}
+.exercise-card{touch-action:pan-y;transition:opacity .16s ease,border-color .16s ease,box-shadow .16s ease}
 .drag-handle:active{cursor:grabbing}
-body.exercise-reordering{user-select:none;-webkit-user-select:none;cursor:grabbing;overscroll-behavior:contain}
+body.exercise-reordering{user-select:none;-webkit-user-select:none;cursor:grabbing;overscroll-behavior:contain;touch-action:none}
 .meta{color:var(--mute);font-size:13px;margin:2px 0 6px}
 .last{font-size:13px;color:var(--mute);background:var(--bg);border-radius:8px;padding:6px 8px;margin-bottom:8px}
 .up{display:block;margin-top:4px;color:var(--ok);font-weight:600}
@@ -1621,7 +1636,7 @@ function vSet(){
     <div id="bkmsg" class="meta" style="margin-top:6px"></div>
   </div>`;
 
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.3.18</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.3.19</div></div>`;
 
   return h;
 }
@@ -2012,28 +2027,12 @@ timerBox.addEventListener('click', e => {
   }
 });
 
-// Vertical drag-and-drop with edge auto-scroll and smoother card feedback.
+/* Smooth vertical exercise reorder: finger-tracked card + FLIP slot shifts. */
 let exerciseDrag = null;
 let exerciseAutoScroll = null;
-function reorderExerciseAt(y) {
-  if (!exerciseDrag) return;
-  const cards = [...document.querySelectorAll('#app [data-ex-card]')];
-  cards.forEach(c => c.classList.remove('drop-target'));
-  const target = cards.find(c => {
-    if (c === exerciseDrag.card) return false;
-    const r = c.getBoundingClientRect();
-    return y >= r.top && y <= r.bottom;
-  });
-  if (target) {
-    target.classList.add('drop-target');
-    const r = target.getBoundingClientRect();
-    const before = y < r.top + r.height / 2;
-    if (before && exerciseDrag.card.nextElementSibling !== target) {
-      target.parentNode.insertBefore(exerciseDrag.card, target);
-    } else if (!before && target.nextElementSibling !== exerciseDrag.card) {
-      target.parentNode.insertBefore(exerciseDrag.card, target.nextSibling);
-    }
-  }
+
+function exerciseCards(){
+  return [...document.querySelectorAll('#app [data-ex-card]')];
 }
 function stopExerciseAutoScroll() {
   if (exerciseAutoScroll !== null) {
@@ -2041,24 +2040,150 @@ function stopExerciseAutoScroll() {
     exerciseAutoScroll = null;
   }
 }
+function exerciseFlipOthers(except){
+  const cards = exerciseCards().filter(c => c !== except && !c.classList.contains('drag-placeholder'));
+  const before = new Map(cards.map(c => [c, c.getBoundingClientRect().top]));
+  return () => {
+    cards.forEach(c => {
+      const top0 = before.get(c);
+      if(top0 === undefined) return;
+      const top1 = c.getBoundingClientRect().top;
+      const dy = top0 - top1;
+      if(Math.abs(dy) < 1) return;
+      c.classList.remove('drag-shift');
+      c.style.transition = 'none';
+      c.style.transform = `translateY(${dy}px)`;
+      void c.offsetWidth;
+      c.classList.add('drag-shift');
+      c.style.transition = '';
+      c.style.transform = '';
+      const clear = () => {
+        c.classList.remove('drag-shift');
+        c.style.transform = '';
+        c.removeEventListener('transitionend', clear);
+      };
+      c.addEventListener('transitionend', clear);
+    });
+  };
+}
+function exerciseLiftCard(ed){
+  const card = ed.card;
+  const rect = card.getBoundingClientRect();
+  ed.offsetY = ed.lastY - rect.top;
+  ed.width = rect.width;
+  ed.height = rect.height;
+  ed.left = rect.left;
+
+  const ph = document.createElement('div');
+  ph.className = 'card exercise-card drag-placeholder';
+  ph.style.height = rect.height + 'px';
+  ph.style.marginBottom = getComputedStyle(card).marginBottom;
+  ph.dataset.exCard = card.dataset.exCard;
+  ed.placeholder = ph;
+  card.parentNode.insertBefore(ph, card);
+
+  card.classList.add('dragging');
+  card.style.position = 'fixed';
+  card.style.left = rect.left + 'px';
+  card.style.width = rect.width + 'px';
+  card.style.top = rect.top + 'px';
+  card.style.margin = '0';
+  card.style.zIndex = '200';
+  card.style.pointerEvents = 'none';
+  document.body.appendChild(card);
+}
+function exerciseMoveFloating(ed, clientY){
+  const top = clientY - ed.offsetY;
+  ed.card.style.top = top + 'px';
+  ed.card.style.left = ed.left + 'px';
+  ed.card.style.width = ed.width + 'px';
+}
+function exerciseUpdateSlot(ed, clientY){
+  const ph = ed.placeholder;
+  if(!ph || !ph.parentNode) return;
+  const siblings = [...ph.parentNode.children].filter(
+    el => el !== ph && el !== ed.card && el.hasAttribute && el.hasAttribute('data-ex-card') && !el.classList.contains('dragging')
+  );
+  let insertBeforeEl = null;
+  for(const s of siblings){
+    const r = s.getBoundingClientRect();
+    const mid = r.top + r.height / 2;
+    if(clientY < mid){ insertBeforeEl = s; break; }
+  }
+  const targetNext = insertBeforeEl;
+  const currentNext = ph.nextElementSibling === ed.card ? ph.nextElementSibling?.nextElementSibling : ph.nextElementSibling;
+  /* Normalize: next meaningful sibling after placeholder */
+  let afterPh = ph.nextElementSibling;
+  while(afterPh && (afterPh === ed.card || afterPh.classList?.contains('dragging'))) afterPh = afterPh.nextElementSibling;
+
+  if(targetNext === afterPh) return;
+
+  const play = exerciseFlipOthers(ed.card);
+  if(targetNext) ph.parentNode.insertBefore(ph, targetNext);
+  else ph.parentNode.appendChild(ph);
+  play();
+}
+function exerciseFinishVisual(ed){
+  const card = ed.card;
+  const ph = ed.placeholder;
+  if(ph && ph.parentNode){
+    ph.parentNode.insertBefore(card, ph);
+    ph.remove();
+  } else if(card.parentNode !== document.getElementById('app') && !card.closest('#app')){
+    const host = document.querySelector('#log-content-container') || document.getElementById('app');
+    if(host) host.appendChild(card);
+  }
+  card.classList.remove('dragging');
+  card.style.position = '';
+  card.style.left = '';
+  card.style.top = '';
+  card.style.width = '';
+  card.style.margin = '';
+  card.style.zIndex = '';
+  card.style.pointerEvents = '';
+  card.style.transform = '';
+  document.querySelectorAll('#app .drag-shift').forEach(c => {
+    c.classList.remove('drag-shift');
+    c.style.transform = '';
+    c.style.transition = '';
+  });
+}
+
 document.addEventListener('pointerdown', e => {
   const handle = e.target.closest('[data-drag-handle]');
   if (!handle || ui.tab !== 'today' || e.button > 0) return;
   const card = handle.closest('[data-ex-card]');
   if (!card) return;
-  exerciseDrag = {id: card.dataset.exCard, card, startY: e.clientY, lastY: e.clientY, moved: false, pointerId: e.pointerId};
+  exerciseDrag = {
+    id: card.dataset.exCard,
+    card,
+    startY: e.clientY,
+    lastY: e.clientY,
+    moved: false,
+    pointerId: e.pointerId,
+    placeholder: null,
+    offsetY: 0,
+    width: 0,
+    height: 0,
+    left: 0
+  };
   try { handle.setPointerCapture(e.pointerId); } catch (_) {}
 });
 document.addEventListener('pointermove', e => {
   if (!exerciseDrag || (exerciseDrag.pointerId !== undefined && e.pointerId !== exerciseDrag.pointerId)) return;
   exerciseDrag.lastY = e.clientY;
   if (Math.abs(e.clientY - exerciseDrag.startY) > 5) {
-    exerciseDrag.moved = true;
-    document.body.classList.add('exercise-reordering');
-    exerciseDrag.card.classList.add('dragging');
+    if(!exerciseDrag.moved){
+      exerciseDrag.moved = true;
+      document.body.classList.add('exercise-reordering');
+      exerciseLiftCard(exerciseDrag);
+      haptic(8);
+    }
   }
   if (!exerciseDrag.moved) return;
-  reorderExerciseAt(e.clientY);
+  exerciseMoveFloating(exerciseDrag, e.clientY);
+  exerciseUpdateSlot(exerciseDrag, e.clientY);
+
   const edge = 88;
   const y = e.clientY;
   let speed = 0;
@@ -2073,7 +2198,8 @@ document.addEventListener('pointermove', e => {
       else if (py > window.innerHeight - edge) step = Math.max(3, Math.ceil((py - (window.innerHeight - edge)) / 4));
       if (step) {
         window.scrollBy(0, step);
-        reorderExerciseAt(py);
+        exerciseMoveFloating(exerciseDrag, py);
+        exerciseUpdateSlot(exerciseDrag, py);
       } else stopExerciseAutoScroll();
     }, 16);
   } else if (!speed) stopExerciseAutoScroll();
@@ -2088,17 +2214,19 @@ function finishExerciseDrag(e) {
   exerciseDrag = null;
   stopExerciseAutoScroll();
   document.body.classList.remove('exercise-reordering');
-  document.querySelectorAll('#app [data-ex-card]').forEach(c => c.classList.remove('dragging','drop-target'));
-  
+
   if (moved && dragSnapshot) {
-    const ids = [...document.querySelectorAll('#app [data-ex-card]')].map(c => c.dataset.exCard);
+    exerciseFinishVisual(dragSnapshot);
+    const ids = exerciseCards()
+      .filter(c => !c.classList.contains('drag-placeholder'))
+      .map(c => c.dataset.exCard);
     const plan = getPlan();
     const day = plan[ui.day];
     if(!day || !Array.isArray(day.ex)) return;
-    
+
     const byId = new Map(day.ex.map(ex => [ex.id, ex]));
     const planIdsInOrder = ids.filter(id => byId.has(id));
-    
+
     if (planIdsInOrder.length === day.ex.length && new Set(planIdsInOrder).size === planIdsInOrder.length) {
       day.ex = planIdsInOrder.map(id => byId.get(id));
       saveState(0);
@@ -2694,4 +2822,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.3.18 -->
+</html><!-- END OF FILE — Lift Log version 1.3.19 -->
