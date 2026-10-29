@@ -1,6 +1,6 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.3.17
+  Current version: 1.3.18
 
   Instructions for future AI-assisted edits:
   1. Keep this version declaration as the first content in the file.
@@ -9,6 +9,9 @@
   4. Keep the version shown in the application interface synchronized with this header.
   5. End the file with an explicit end-of-file comment containing the same version number as this header and the interface.
   6. Never claim a test passed unless it was actually run; clearly disclose any testing limitations.
+
+  Version 1.3.18 change log:
+  - Export filenames put date/time first and use a short type suffix (e.g. 2026-10-29_143052_LL-bak.txt) so iOS truncation with "..." does not hide the identifying part of the name.
 
   Version 1.3.17 change log:
   - Rest timer: edge hide now tracks the finger off the side of the screen (no hard on-screen clamp). Dock position is driven by left/top rather than a post-release transform snap. On release it eases the remaining distance into a left or right peek dock; pull or tap the handle to slide it back.
@@ -1618,7 +1621,7 @@ function vSet(){
     <div id="bkmsg" class="meta" style="margin-top:6px"></div>
   </div>`;
 
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.3.17</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.3.18</div></div>`;
 
   return h;
 }
@@ -1722,9 +1725,14 @@ function csvEscape(value) {
   const text = value === null || value === undefined ? '' : String(value);
   return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
 }
+/* Date/time first so iOS filename truncation keeps the useful part visible. */
 function exportTimestamp(date=new Date()) {
   const pad=n=>String(n).padStart(2,'0');
-  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+}
+function exportFileName(kind, ext, date=new Date()) {
+  /* kind: bak | csv | rec — short suffix after timestamp */
+  return `${exportTimestamp(date)}_LL-${kind}.${ext}`;
 }
 function downloadTextFile(content, filename, mime='text/plain;charset=utf-8') {
   const blob=new Blob([content],{type:mime});
@@ -2453,7 +2461,7 @@ document.addEventListener('click', e => {
   }
   else if(a==='dlrecovery'){
     let raw=null; try{ raw=localStorage.getItem(KEY+'_corrupt'); }catch(_){}
-    if(raw) downloadTextFile(raw,`LiftLog_recovery_${exportTimestamp()}.json`,'application/json');
+    if(raw) downloadTextFile(raw, exportFileName('rec','json'), 'application/json');
     else alert('No recovery copy was found in this browser.');
   }
   else if(a==='droprecovery'){
@@ -2464,9 +2472,9 @@ document.addEventListener('click', e => {
     }
   }
   else if(a==='exptxt'){
-    const stamp=exportTimestamp();
-    downloadTextFile(createTextBackup(),`LiftLog_Progress_Backup_${stamp}.txt`);
-    document.getElementById('bkmsg').textContent=`TXT backup exported (${stamp}). You can read it directly or import it later to restore your data.`;
+    const name=exportFileName('bak','txt');
+    downloadTextFile(createTextBackup(), name);
+    document.getElementById('bkmsg').textContent=`TXT backup exported (${name}). You can read it directly or import it later to restore your data.`;
   }
   else if(a==='expcsv'){
     const rows=[['Date','Exercise','Set','Weight','Reps','Note']];
@@ -2482,9 +2490,9 @@ document.addEventListener('click', e => {
       });
     });
     const csv=rows.map(row=>row.map(csvEscape).join(',')).join('\r\n')+'\r\n';
-    const stamp=exportTimestamp();
-    downloadTextFile(csv,`LiftLog_Progress_${stamp}.csv`,'text/csv;charset=utf-8');
-    document.getElementById('bkmsg').textContent=`CSV exported (${stamp}).`;
+    const name=exportFileName('csv','csv');
+    downloadTextFile(csv, name, 'text/csv;charset=utf-8');
+    document.getElementById('bkmsg').textContent=`CSV exported (${name}).`;
   }
   else if(a==='impfile'){
     document.getElementById('impfile_input').click();
@@ -2686,4 +2694,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.3.17 -->
+</html><!-- END OF FILE — Lift Log version 1.3.18 -->
