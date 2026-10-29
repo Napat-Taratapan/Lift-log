@@ -10,6 +10,18 @@
   5. End the file with an explicit end-of-file comment containing the same version number as this header and the interface.
   6. Never claim a test passed unless it was actually run; clearly disclose any testing limitations.
 
+
+  Version numbering (Major.Minor.Patch), e.g. 1.3.20:
+  - Major: breaking change — storage/data format, storage key, or redesign that may be incompatible with existing backups without migration.
+  - Minor: new features while keeping compatibility with existing logs, routines, and theme (e.g. new graph, heatmap behaviour, settings controls).
+  - Patch: bug fixes or small polish only (e.g. incorrect calculation, silent alarm, label/truncation fix).
+  Rules:
+  - If user data and backups keep working with no forced migration, do not bump Major.
+  - If the release mainly adds capability, bump Minor (list any fixes in the same changelog).
+  - If the release only fixes or polishes, bump Patch.
+  - Always keep the header version, the in-app Settings version string, and the end-of-file version comment identical.
+  - Every release must add a concise changelog entry under the new version describing what changed.
+
   Version 1.3.19 change log:
   - Log exercise reorder: the dragged card follows the finger; neighbours animate into place with FLIP transitions instead of jumping when the insertion slot changes. Edge auto-scroll is preserved.
 
