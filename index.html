@@ -1,6 +1,9 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.6.2
+  Current version: 1.6.3
+
+  Version 1.6.3 change log:
+  - Fixed bottom nav sitting too high on short, non-scrolling pages (Log rest day, Calendar) in the iOS home-screen app: body now always keeps the document slightly taller than the screen so fixed elements anchor to the full viewport.
 
   Version 1.6.2 change log:
   - Added Interactive Chart Scrubbing: touching and dragging over progress charts summons a floating glass tooltip and vertical crosshair that snaps to data points, complete with haptic tick feedback.
@@ -64,6 +67,11 @@ body{
 }
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:10}
 main{max-width:720px;margin:0 auto;padding:4px 12px calc(100px + env(safe-area-inset-bottom,0px));transition:opacity 0.2s ease, transform 0.2s ease; position:relative}
+/* Keep the document always a hair taller than the screen. On iOS home-screen apps, short pages (Log rest day, Calendar)
+   aren't scrollable, and WebKit then anchors position:fixed bottom elements to a viewport shrunk by the top safe area,
+   which lifted the bottom nav ~62pt. Home/Progress/Settings are long enough to scroll, so they were never affected. */
+body{min-height:calc(100vh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) + 2px)}
+@supports (height:100lvh){body{min-height:calc(100lvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) + 2px)}}
 
 #error-box:empty{display:none}
 #error-box .error-overlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px}
@@ -2013,7 +2021,7 @@ function vSet(){
     <div id="bkmsg" class="meta" style="margin-top:6px"></div>
   </div>`;
 
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.6.2</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.6.3</div></div>`;
 
   return h;
 }
@@ -3359,4 +3367,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.6.2 -->
+</html><!-- END OF FILE — Lift Log version 1.6.3 -->
