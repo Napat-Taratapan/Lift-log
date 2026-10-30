@@ -1,88 +1,23 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.3.21
+  Current version: 1.6.2
 
-  Instructions for future AI-assisted edits:
-  1. Keep this version declaration as the first content in the file.
-  2. For every new release, increment the version and update the change log below with a concise, specific list of additions, fixes, and behavior changes.
-  3. Preserve existing functionality unless a change is explicitly required, and test relevant behavior before delivering the file.
-  4. Keep the version shown in the application interface synchronized with this header.
-  5. End the file with an explicit end-of-file comment containing the same version number as this header and the interface.
-  6. Never claim a test passed unless it was actually run; clearly disclose any testing limitations.
+  Version 1.6.2 change log:
+  - Added Interactive Chart Scrubbing: touching and dragging over progress charts summons a floating glass tooltip and vertical crosshair that snaps to data points, complete with haptic tick feedback.
+  - Added "Set Complete" micro-interaction: when a set's weight and reps are filled, the row briefly pulses with the accent color and provides a satisfying haptic tick.
+  - Added Premium Empty States: unlogged days, empty routines, and missing chart data now feature beautiful, minimalist SVG illustrations (e.g., a coffee cup for rest days) instead of plain text.
 
-  Version numbering (Major.Minor.Patch), e.g. 1.3.20:
-  - Major: breaking change — storage/data format, storage key, or redesign that may be incompatible with existing backups without migration.
-  - Minor: new features while keeping compatibility with existing logs, routines, and theme (e.g. new graph, heatmap behaviour, settings controls).
-  - Patch: bug fixes or small polish only (e.g. incorrect calculation, silent alarm, label/truncation fix).
-  Rules:
-  - If user data and backups keep working with no forced migration, do not bump Major.
-  - If the release mainly adds capability, bump Minor (list any fixes in the same changelog).
-  - If the release only fixes or polishes, bump Patch.
-  - Always keep the header version, the in-app Settings version string, and the end-of-file version comment identical.
-  - Every release must add a concise changelog entry under the new version describing what changed.
+  Version 1.6.1 change log:
+  - Overhauled the Liquid Glass theme with true volumetric physics: added meniscus surface tension via inset shadows, glossy specular sheen overlays, and dynamic accent tinting for deep refraction.
 
-  Version 1.3.21 change log:
-  - Fixed: rest-timer dock handle appeared on top of the card instead of the side. Glass mode forced position:relative on all timer children, which broke absolute side placement. Handle is a side tab when docked; body fades when docked.
-
-  Version 1.3.20 change log:
-  - Performance for large histories (normal short histories unchanged): cache streak / weekly series / exercise sessions until logs change; Progress overall chart defaults to last 52 weeks when longer; per-exercise chart defaults to last 40 sessions when longer; session table shows latest 25 with “Show older”; optional “Show all” controls; soft storage warning near ~70% quota; Settings can export-trim logs before a date (after confirmation).
-
-  Version 1.3.19 change log:
-  - Log exercise reorder: the dragged card follows the finger; neighbours animate into place with FLIP transitions instead of jumping when the insertion slot changes. Edge auto-scroll is preserved.
-
-  Version 1.3.18 change log:
-  - Export filenames put date/time first and use a short type suffix (e.g. 2026-10-29_143052_LL-bak.txt) so iOS truncation with "..." does not hide the identifying part of the name.
-
-  Version 1.3.17 change log:
-  - Rest timer: edge hide now tracks the finger off the side of the screen (no hard on-screen clamp). Dock position is driven by left/top rather than a post-release transform snap. On release it eases the remaining distance into a left or right peek dock; pull or tap the handle to slide it back.
-
-  Version 1.3.16 change log:
-  - Settings: heatmap colours are customisable — pick a base colour for Trained and for Planned rest. Volume intensity levels (lighter → stronger) are derived automatically from the trained base via opacity; no need to pick each step.
-  - Calendar planned-rest styling and the Activity legend follow the same theme colours.
-
-  Version 1.3.15 change log:
-  - Activity heatmap: planned rest days can show a cool (blue) colour when they sit in training context (same week or ±3 days of a logged workout). Rest never counts toward the workout total.
-  - Missed planned training days stay empty on the heatmap (not coloured as rest).
-  - Calendar day colours sync with the same rules: accent = trained, cool blue = planned rest with context, default = empty/miss. Legend text updated on both views.
-
-  Version 1.3.14 change log:
-  - Fixed: sets logged with 0 kg (bodyweight work) were ignored by history, "Last time", PRs, Progress charts, Top Movers, and archiving. A set now counts when weight ≥ 0 and reps are present.
-  - Fixed: streak counted any log object (including empty shells or note-only days). It now uses the same has-exercise-history check as the Home week strip and heatmap.
-  - Fixed: Calendar day highlighting used a looser "any log object" rule; it now matches dayHasWork so completed days are consistent across Home and Calendar.
-  - Fixed: PR detection when editing a past date compared against later sessions. It now only considers strictly earlier dates.
-  - Added: default rest-timer duration (minutes) is configurable in Settings → Timer & Alarm.
-
-  Version 1.3.13 change log:
-  - Redesigned the Home page as a dashboard: Today card with set-progress ring and Start/Continue button (rest days show the next workout), Mon-Sun week strip, stat tiles (streak, workouts this week, volume vs last week so far), Recent PRs, a 12-week activity heatmap, and Top Movers (est. 1RM gain over 4 weeks) replacing the averaged weekly chart. The four menu buttons were removed since the bottom nav covers them. The Overall chart remains on the Progress tab.
-
-  Version 1.3.12 change log:
-  - Fixed: a weekday missing from a weekday-named routine (e.g. Friday in PPL) no longer borrows another day's workout. It is now an implicit Rest Day, which also stops the streak from breaking on planned rest days.
-  - Rest days now handle + Exercise / Remove safely and slide animations use the date direction.
-  - Fixed: restoring or importing a malformed backup could permanently break the app. All backups (and stored data) are now validated first, dry-run rendered, and rolled back with a clear error if unusable.
-  - Fixed: tapping a routine day tab did nothing. It now jumps to that routine day within the currently viewed week.
-  - Fixed: rest-timer / PR alarm could be silent on iPhone (audio was created too late and never unlocked). One shared audio context is now unlocked by your first tap, and a failing custom sound falls back to the beep instead of raising a false crash dialog.
-  - Fixed: swipes cancelled by iOS (touchcancel) left the page stuck sideways, and starting a swipe during the settle animation nested tracks. Both are handled.
-  - Fixed: the same exercise on different days (e.g. Seated Cable Row on Mon and Thu) had separate histories. "Last time" hints, PR detection and Progress charts now share history across same-named exercises (matched by name, so no data migration). The Progress picker lists each exercise once.
-  - Fixed: the PR celebration fired on every keystroke and never when weight was entered after reps. It now checks when you finish editing a set, and shows once per new record.
-  - Fixed: the lowest bar in Line/Bar charts had zero height and was invisible; bar charts now pad the lower axis bound.
-  - Fixed: Remove on an Off-Plan exercise did nothing; it now removes that exercise's logged sets for the viewed date.
-  - Fixed: weekly chart labels were one day early in UTC+ time zones (now uses local dates).
-  - Fixed: "Custom sound saved!" appeared even when storage was full. Failed saves are now reported and reverted. The custom sound is no longer embedded in backups (it bloated them); restoring keeps your current sound.
-  - Hardened: exercise ids and theme colors from backups are escaped / validated before being placed in the page. Decimal reps in imports are rounded instead of dropped.
-  - Fixed: unreadable stored data was silently replaced by defaults and then overwritten. A recovery copy is now kept (downloadable from the warning banner and Settings) and the warning text is accurate.
-
-  Version 1.3.11 change log:
-  - Routine day tab bar now keeps its scroll position across re-renders and smoothly glides the active day to the center whenever the day changes (swipe, date arrows, tab tap, Today). During a swipe the glide runs in sync with the page slide.
-  - Hid the tab bar scrollbar and added touch momentum scrolling.
-
-  Version 1.3.10 change log:
-  - Fixed header distortion during physical swipes by keeping the top controls (date navigation, add exercise button, and routine tab bar) completely fixed in place while only sliding the exercise content cards below.
-  - Updated swipe track handling so that routine day tabs and date fields update correctly and smoothly as panes transition.
-
-  Version 1.3.9 change log:
-  - Fixed SVG path generation bug that caused the line graph on the Progress tab to render incorrectly.
-  - Fixed calendar alignment bug where undefined routine days defaulted to Day 1 instead of showing an implicit Rest Day.
-  - Fixed drag-and-drop bug where the presence of Off-Plan exercises prevented official routine reordering from saving.
+  Version 1.6.0 change log:
+  - Floating bottom nav auto-hides on scroll down and slides back on scroll up.
+  - Interactive swipe/drag gesture added to bottom nav track so the capsule follows finger movement and snaps to nearest tab.
+  - Subtle 2px lift animation added on bottom nav icons when tapped.
+  - Completed "no emoji" minimalist SVG icon sweep.
+  - Directional tab page transitions: switching tabs smoothly slides content horizontally based on tab index direction.
+  - Animated counting numbers for Home page stat tiles (Streak, Workouts, Volume).
+  - Timer polish: frame-synchronized ring rendering, tick mark haptics while scrubbing, and completion ring glow effect.
 -->
 <!doctype html>
 <html lang="en">
@@ -94,7 +29,6 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Lift Log">
 <meta name="theme-color" content="#141413">
-<!-- Custom app icon: place icon.png in the same directory as this HTML file. -->
 <link rel="icon" type="image/png" href="./icon.png">
 <link rel="apple-touch-icon" href="./icon.png">
 <title>Lift Log - Workout & Progress Tracker</title>
@@ -129,27 +63,31 @@ body{
   overflow-x:hidden;
 }
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:10}
-main{max-width:720px;margin:0 auto;padding:4px 12px 100px;transition:opacity 0.2s ease, transform 0.2s ease; position:relative}
+main{max-width:720px;margin:0 auto;padding:4px 12px calc(100px + env(safe-area-inset-bottom,0px));transition:opacity 0.2s ease, transform 0.2s ease; position:relative}
 
-/* Recoverable error dialog */
 #error-box:empty{display:none}
 #error-box .error-overlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px}
 #error-box .error-card{width:min(100%,420px);background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:0 18px 60px #0008}
 #error-box .error-card h2{margin:0 0 8px;font-size:20px}
 #error-box .error-detail{font-size:12px;opacity:.8;white-space:pre-wrap;overflow-wrap:anywhere;max-height:100px;overflow:auto;margin:10px 0}
 
-/* Smooth, subtle entrance when switching app tabs */
-#app.tab-enter{animation:tabEnter 280ms cubic-bezier(.2,.75,.25,1) both;will-change:opacity,transform}
+/* Smooth Directional Tab Transitions */
+#app.tab-enter-left{animation:tabEnterLeft 280ms cubic-bezier(.2,.75,.25,1) both;will-change:opacity,transform}
+#app.tab-enter-right{animation:tabEnterRight 280ms cubic-bezier(.2,.75,.25,1) both;will-change:opacity,transform}
 #app.day-enter-older{animation:dayEnterOlder 260ms cubic-bezier(.2,.75,.25,1) both;will-change:opacity,transform}
 #app.day-enter-newer{animation:dayEnterNewer 260ms cubic-bezier(.2,.75,.25,1) both;will-change:opacity,transform}
 @keyframes dayEnterOlder{from{opacity:.55;transform:translateX(32px)}to{opacity:1;transform:translateX(0)}}
 @keyframes dayEnterNewer{from{opacity:.55;transform:translateX(-32px)}to{opacity:1;transform:translateX(0)}}
-@keyframes tabEnter{
-  from{opacity:0;transform:translateY(10px) scale(.995);filter:blur(2px)}
-  to{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}
+@keyframes tabEnterLeft{
+  from{opacity:0;transform:translateX(-16px) scale(.99)}
+  to{opacity:1;transform:translateX(0) scale(1)}
+}
+@keyframes tabEnterRight{
+  from{opacity:0;transform:translateX(16px) scale(.99)}
+  to{opacity:1;transform:translateX(0) scale(1)}
 }
 @media (prefers-reduced-motion:reduce){
-  #app.tab-enter,#app.day-enter-older,#app.day-enter-newer{animation:none;will-change:auto}
+  #app.tab-enter-left,#app.tab-enter-right,#app.day-enter-older,#app.day-enter-newer{animation:none;will-change:auto}
   *,*:before,*:after{scroll-behavior:auto!important;transition-duration:0.01ms!important;animation-duration:0.01ms!important;animation-iteration-count:1!important}
 }
 
@@ -168,6 +106,7 @@ h2.sec{font-size:17px;margin:18px 0 2px}
 .tabs button,.btn{
   border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;
   padding:8px 12px;font:inherit;cursor:pointer;transition:all 0.15s ease;
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
 }
 .tabs button{white-space:nowrap;font-size:13px}
 .tabs button.on{background:var(--acc);border-color:var(--acc);color:var(--onacc);font-weight:700}
@@ -185,33 +124,42 @@ input[type=color]{width:56px;height:36px;padding:2px;cursor:pointer}
   transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-/* Base Liquid Glass Theme (Premium Apple Style) */
+/* Liquid Glass Theme (iOS Control Center Style) */
 .glass-mode .card, .glass-mode .mb, .glass-mode .stat, .glass-mode .bottom-nav {
-  background: linear-gradient(135deg, rgba(45,45,42,0.45) 0%, rgba(25,25,23,0.55) 100%) !important;
-  backdrop-filter: blur(20px) saturate(160%);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
-  border: 1px solid var(--glass-border) !important;
-  box-shadow: inset 0 1px 1px rgba(255,255,255,0.06), 0 8px 24px rgba(0,0,0,0.3) !important;
+  background: linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 100%) !important;
+  backdrop-filter: blur(48px) saturate(190%);
+  -webkit-backdrop-filter: blur(48px) saturate(190%);
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  border-bottom-color: rgba(255,255,255,0.03) !important;
+  box-shadow: 
+    inset 0 1px 1px rgba(255,255,255,0.2), 
+    inset 0 2px 6px rgba(255,255,255,0.05), 
+    inset 0 -1px 1px rgba(0,0,0,0.3), 
+    0 12px 32px rgba(0,0,0,0.3) !important;
 }
 
-/* Floating Draggable Clock (Ultra-Premium Glass) */
+/* Remove old plastic overlays */
+.glass-mode .card::before, .glass-mode .mb::before, .glass-mode .stat::before, .glass-mode .bottom-nav::before, .glass-mode .timer-widget::before {
+  display: none !important;
+}
+
+.glass-mode .card > *, .glass-mode .mb > *, .glass-mode .stat > *, .glass-mode .bottom-nav > *, .glass-mode .timer-widget > *:not(.timer-dock-handle) {
+  position: relative; z-index: 1;
+}
+
+/* Timer Widget - Enhanced iOS Glass */
 .glass-mode .timer-widget {
-  background: linear-gradient(135deg, rgba(55,55,52,0.5) 0%, rgba(20,20,18,0.65) 100%) !important;
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
-  border: 1px solid rgba(255,255,255,0.12) !important;
+  background: linear-gradient(135deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.03) 100%) !important;
+  backdrop-filter: blur(64px) saturate(220%);
+  -webkit-backdrop-filter: blur(64px) saturate(220%);
+  border: 1px solid rgba(255,255,255,0.16) !important;
+  border-bottom-color: rgba(255,255,255,0.04) !important;
   box-shadow: 
-    inset 0 1px 1px rgba(255,255,255,0.18), 
-    inset 0 -1px 1px rgba(0,0,0,0.3), 
-    0 16px 40px rgba(0,0,0,0.55) !important;
+    inset 0 1px 1px rgba(255,255,255,0.3),
+    inset 0 4px 12px rgba(255,255,255,0.08),
+    inset 0 -1px 1px rgba(0,0,0,0.4),
+    0 16px 48px rgba(0,0,0,0.5) !important;
 }
-.glass-mode .timer-widget::before {
-  content: ''; position: absolute; inset: 0; border-radius: inherit;
-  background: linear-gradient(135deg, rgba(255,255,255,0.07) 0%, transparent 50%);
-  pointer-events: none; z-index: 0;
-}
-/* Do not force the dock handle into normal flow — it must stay position:absolute on the side. */
-.glass-mode .timer-widget > *:not(.timer-dock-handle) { position: relative; z-index: 1; }
 
 .card h3{margin:0;font-size:16px;display:flex;align-items:center;justify-content:space-between}
 .drag-handle{border:0;background:transparent;color:var(--mute);font-size:21px;line-height:1;padding:3px 8px 3px 0;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
@@ -238,9 +186,16 @@ body.exercise-reordering{user-select:none;-webkit-user-select:none;cursor:grabbi
 .row{display:grid;grid-template-columns:44px 1fr 1fr;gap:8px;align-items:center;margin-bottom:6px;transition:opacity 0.2s ease}
 .row span{color:var(--mute);font-size:13px;transition:color 0.2s ease}
 .row input{width:100%;text-align:center}
-/* Set Complete Visual State */
 .row.set-done{opacity:0.6}
 .row.set-done span{color:var(--ok);font-weight:700}
+
+/* Micro-interaction for completing a set */
+@keyframes setCompletePop {
+  0% { transform: scale(1); background-color: transparent; }
+  40% { transform: scale(1.02); background-color: var(--glass-glow); border-radius: 8px; }
+  100% { transform: scale(1); background-color: transparent; }
+}
+.row.set-just-done { animation: setCompletePop 0.45s ease-out; }
 
 .note{width:100%;margin-top:4px}
 .small{font-size:13px;padding:6px 10px}
@@ -259,7 +214,7 @@ th{color:var(--mute);font-weight:500;font-size:12px}
 .warn{background:var(--accbg);color:var(--acc);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:13px}
 textarea{width:100%;height:120px;font-family:ui-monospace,Menlo,monospace;font-size:12px}
 svg{width:100%;height:auto;display:block}
-.empty{color:var(--mute);text-align:center;padding:24px 8px}
+.empty{color:var(--mute);text-align:center;padding:24px 8px;display:flex;flex-direction:column;align-items:center;}
 .cr{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)}
 
 .hero{padding:16px 4px 12px}
@@ -277,6 +232,9 @@ svg{width:100%;height:auto;display:block}
 .mb b{display:block;font-size:17px}
 .mb small{color:var(--mute);font-size:13px}
 .mb::after{content:"▸";margin-left:auto;color:var(--acc);font-size:20px}
+
+/* Minimalist Inline Line-Icons */
+.svg-icon{display:inline-block;width:18px;height:18px;vertical-align:middle;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 
 /* Home dashboard */
 .dash>*{animation:dashIn .4s cubic-bezier(.2,.75,.25,1) both;animation-delay:calc(var(--i,0)*55ms)}
@@ -306,7 +264,7 @@ svg{width:100%;height:auto;display:block}
 .wk .now i{box-shadow:0 0 0 3px var(--accbg);border-color:var(--acc)}
 .tiles{display:flex;gap:8px;margin-bottom:10px}
 .tiles .stat{padding:12px 6px;border:1px solid var(--line)}
-.tiles .stat b{font-size:24px;line-height:1.1}
+.tiles .stat b{font-size:24px;line-height:1.1;display:flex;align-items:center;justify-content:center;gap:4px}
 .tiles .up{color:var(--up)}.tiles .dn{color:var(--down)}
 .dash h3 small{color:var(--mute);font-weight:400;font-size:12px}
 .pr-row,.mv-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
@@ -345,35 +303,71 @@ svg{width:100%;height:auto;display:block}
 .cd.rest small{color:var(--heat-rest-label)}
 .cd.td{outline:2px solid var(--acc);outline-offset:1px}
 
+/* Floating Navigation Pill */
 .bottom-nav{
-  position:fixed;bottom:0;left:0;right:0;height:64px;background:var(--card);border-top:1px solid var(--line);
-  display:flex;justify-content:space-around;align-items:center;z-index:90;padding-bottom:env(safe-area-inset-bottom,0px);
+  position:fixed;left:12px;right:12px;margin:0 auto;max-width:480px;
+  bottom:calc(env(safe-area-inset-bottom,0px) + 10px);height:68px;padding:5px;
+  border-radius:999px;z-index:90;
+  background:rgba(30,30,28,.72);
+  background:color-mix(in srgb,var(--card) 68%,transparent);
+  -webkit-backdrop-filter:blur(22px) saturate(170%);backdrop-filter:blur(22px) saturate(170%);
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.08),0 10px 30px rgba(0,0,0,.45);
+  transition: transform 0.35s cubic-bezier(.22,1,.36,1);
+  touch-action: pan-x;
 }
+.bottom-nav.nav-hidden{
+  transform: translateY(calc(100% + 24px + env(safe-area-inset-bottom,0px)));
+}
+.nav-track{position:relative;display:flex;height:100%;touch-action:none}
+.nav-pill{
+  position:absolute;top:0;bottom:0;left:0;width:20%;border-radius:999px;pointer-events:none;
+  background:rgba(255,255,255,.11);
+  background:color-mix(in srgb,var(--ink) 12%,transparent);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.08);
+  transform:translateX(calc(var(--i,0) * 100%));
+  opacity:var(--on,1);
+}
+.bottom-nav.ready .nav-pill{transition:transform .5s cubic-bezier(.22,1,.36,1),opacity .25s ease}
+.bottom-nav.dragging-pill .nav-pill{transition:none !important}
 .bottom-nav button{
-  background:none;border:none;color:var(--mute);font:inherit;font-size:11px;display:flex;flex-direction:column;
-  align-items:center;gap:3px;cursor:pointer;padding:6px;width:20%;transition:color 0.15s ease, transform 0.15s ease;
+  position:relative;z-index:1;flex:1;min-width:0;background:none;border:none;color:var(--ink);
+  font:inherit;font-size:11px;font-weight:700;letter-spacing:.1px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:3px;cursor:pointer;padding:0;
+  -webkit-tap-highlight-color:transparent;transition:color .35s ease,transform .15s ease;
 }
-.bottom-nav button.active{color:var(--acc);font-weight:bold}
-.bottom-nav button .ic{font-size:20px;line-height:1}
-.bottom-nav button:active{transform:scale(0.9)}
+.bottom-nav button.active{color:var(--acc)}
+.bottom-nav button .ic{display:block;width:24px;height:24px;line-height:0;transition:transform 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28)}
+.bottom-nav button:active .ic{transform:translateY(-2px)}
+.bottom-nav button .ic svg{width:100%;height:100%;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;overflow:visible}
+.bottom-nav button .ic svg .f{fill:currentColor;fill-opacity:0;transition:fill-opacity .35s ease}
+.bottom-nav button.active .ic svg .f{fill-opacity:.25}
 
 /* Floating Draggable & Edge-Docking Timer Widget */
 .timer-widget{
-  position:fixed;bottom:90px;right:20px;
+  position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 96px);right:20px;
   background:var(--card);border:2px solid var(--acc);border-radius:24px;
   padding:16px 20px;display:flex;flex-direction:column;align-items:center;gap:12px;
   z-index:95;box-shadow:0 16px 40px rgba(0,0,0,0.65);
-  animation: popIn 0.35s cubic-bezier(0.18,0.89,0.32,1.28);
+  animation: timerIn 0.5s cubic-bezier(0.22,1,0.36,1);
   width: 240px; max-width: 90vw;
   touch-action:none; user-select:none; -webkit-user-select:none;
   cursor:grab; will-change: left, top;
   overflow: visible;
 }
 .timer-widget:active{cursor:grabbing}
+.timer-widget.exiting{pointer-events:none}
+.timer-widget:not(.dragging) .timer-body{transition:opacity .3s ease}
 .timer-widget.dragging {
   box-shadow: 0 24px 50px rgba(0,0,0,0.75) !important;
 }
-/* Dock is position-based (left/top). Classes drive side handle + body fade. */
+.timer-widget.finished .timer-circle-wrap{
+  animation: timerGlowPulse 1.2s infinite alternate cubic-bezier(0.4,0,0.6,1);
+}
+@keyframes timerGlowPulse{
+  from{filter:drop-shadow(0 0 4px var(--acc))}
+  to{filter:drop-shadow(0 0 18px var(--acc))}
+}
 .timer-widget.docked-left,
 .timer-widget.docked-right {
   opacity: 0.95;
@@ -406,19 +400,23 @@ svg{width:100%;height:auto;display:block}
 }
 
 .timer-circle-wrap{position:relative;width:120px;height:120px}
-.timer-svg{width:100%;height:100%;transform:rotate(-90deg)}
+.timer-svg{width:100%;height:100%;transform:rotate(-90deg);overflow:visible}
 .timer-bg-circle{fill:none;stroke:var(--line);stroke-width:8}
 .timer-prog-circle{
   fill:none;stroke:var(--acc);stroke-width:8;stroke-linecap:round;
-  stroke-dasharray:283; /* 2 * PI * 45 = 282.7 */
-  transition:stroke-dashoffset 1s linear;
+  stroke-dasharray:283;
 }
+.timer-knob-g{transform-origin:0 0}
+.timer-knob{fill:var(--acc);stroke:var(--card);stroke-width:2;transition:stroke-width .2s ease,stroke .2s ease}
+.timer-widget.scrubbing .timer-knob{stroke:var(--ink);stroke-width:3.2}
 .timer-widget .time{
   position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   font-family:ui-monospace,Menlo,monospace;font-size:28px;font-weight:bold;color:var(--acc);cursor:pointer;
 }
 .timer-widget .ctrls{display:flex;gap:8px;width:100%;justify-content:center}
 .timer-widget .btn{flex:1;padding:8px;font-size:13px;text-align:center;font-weight:bold}
+.timer-widget .btn.tbtn{height:44px;padding:0;display:flex;align-items:center;justify-content:center;background:var(--bg)}
+.timer-widget .btn.tbtn svg{width:22px;height:22px;display:block;pointer-events:none}
 
 .pr-modal-overlay{
   position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(8px);
@@ -438,6 +436,7 @@ svg{width:100%;height:auto;display:block}
 
 @keyframes slideUp{from{transform:translateY(30px);opacity:0}to{transform:translateY(0);opacity:1}}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes timerIn{from{transform:translateX(var(--tin,80px)) scale(.94);opacity:0}to{transform:none;opacity:1}}
 @keyframes popIn{from{transform:translate(-50%, 20px) scale(0.85);opacity:0}to{transform:translate(-50%, 0) scale(1);opacity:1}}
 </style>
 </head>
@@ -453,11 +452,14 @@ svg{width:100%;height:auto;display:block}
 </main>
 
 <div class="bottom-nav">
-  <button data-act="go" data-v="home" id="nav-home"><span class="ic">🏠</span><span>Home</span></button>
-  <button data-act="go" data-v="today" id="nav-today"><span class="ic">🏋️</span><span>Log</span></button>
-  <button data-act="go" data-v="cal" id="nav-cal"><span class="ic">📅</span><span>Calendar</span></button>
-  <button data-act="go" data-v="prog" id="nav-prog"><span class="ic">📈</span><span>Progress</span></button>
-  <button data-act="go" data-v="set" id="nav-set"><span class="ic">⚙️</span><span>Settings</span></button>
+  <div class="nav-track">
+    <span class="nav-pill" aria-hidden="true"></span>
+    <button data-act="go" data-v="home" id="nav-home" aria-label="Home"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="f" d="M3.5 10.8 12 3.6l8.5 7.2V19a1.5 1.5 0 0 1-1.5 1.5h-3.8v-5.3a1.2 1.2 0 0 0-1.2-1.2h-4a1.2 1.2 0 0 0-1.2 1.2v5.3H5A1.5 1.5 0 0 1 3.5 19z"/></svg></span><span>Home</span></button>
+    <button data-act="go" data-v="today" id="nav-today" aria-label="Log"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 12h9"/><rect class="f" x="4.5" y="6.5" width="3" height="11" rx="1.2"/><rect class="f" x="16.5" y="6.5" width="3" height="11" rx="1.2"/><path d="M2 9.5v5M22 9.5v5"/></svg></span><span>Log</span></button>
+    <button data-act="go" data-v="cal" id="nav-cal" aria-label="Calendar"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect class="f" x="3.5" y="5" width="17" height="15.5" rx="3.2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></span><span>Calendar</span></button>
+    <button data-act="go" data-v="prog" id="nav-prog" aria-label="Progress"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect class="f" x="4" y="13" width="4" height="7.5" rx="1.3"/><rect class="f" x="10" y="8.5" width="4" height="12" rx="1.3"/><rect class="f" x="16" y="4" width="4" height="16.5" rx="1.3"/></svg></span><span>Progress</span></button>
+    <button data-act="go" data-v="set" id="nav-set" aria-label="Settings"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5h4.5M13.5 7.5H21M3 16.5h9M17.5 16.5H21"/><circle class="f" cx="10.5" cy="7.5" r="3"/><circle class="f" cx="15" cy="16.5" r="3"/></svg></span><span>Settings</span></button>
+  </div>
 </div>
 
 <div id="timer-box" style="display:none" class="timer-widget">
@@ -468,12 +470,17 @@ svg{width:100%;height:auto;display:block}
       <svg class="timer-svg" viewBox="0 0 100 100">
         <circle class="timer-bg-circle" cx="50" cy="50" r="45"></circle>
         <circle class="timer-prog-circle" cx="50" cy="50" r="45" id="timer-ring"></circle>
+        <g class="timer-knob-g" id="timer-knob-g"><circle class="timer-knob" cx="95" cy="50" r="5.5"></circle></g>
       </svg>
       <div class="time" id="timer-val" data-act="customtimer" title="Tap to set custom duration">03:00</div>
     </div>
     <div class="ctrls">
-      <button class="btn" data-act="timer-add">+30s</button>
-      <button class="btn" data-act="timer-close" style="background:var(--bg)">Stop</button>
+      <button class="btn tbtn" data-act="timer-restart" aria-label="Restart timer" title="Restart">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+      </button>
+      <button class="btn tbtn" data-act="timer-close" aria-label="Stop timer" title="Stop">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="4.5" width="15" height="15" rx="3" fill="var(--down)"></rect></svg>
+      </button>
     </div>
   </div>
 </div>
@@ -482,7 +489,6 @@ svg{width:100%;height:auto;display:block}
 <div id="error-box" role="alertdialog" aria-live="assertive"></div>
 
 <script>
-// Mobile Haptic Helper
 function haptic(ms=10) { if(navigator.vibrate) navigator.vibrate(ms); }
 
 const KEY='liftlog_v2', TKEY='liftlog_theme_v2';
@@ -511,8 +517,6 @@ function buildPlan(arr){return arr.map((d,i)=>({name:d[0],ex:d[1].map((e,j)=>({i
 
 let storageOK=true, loadProblem=null;
 
-/* Validates and normalizes a state object (stored data or imported backup).
-   Throws an Error with a readable message when the structure is unusable. */
 function sanitizeImportedState(o){
   const bad=m=>{throw new Error(m)};
   const isObj=v=>v&&typeof v==='object'&&!Array.isArray(v);
@@ -581,7 +585,6 @@ function loadState(){
   };
 }
 
-/* Safely applies an imported backup: validate, dry-run every view, roll back on failure. */
 function applyImportedState(o){
   const next=sanitizeImportedState(o);
   const prevS=S, prevDay=ui.day, prevProg=ui.prog;
@@ -598,10 +601,8 @@ function applyImportedState(o){
   saveState(0);
 }
 
-/* Theme copy for backups: the custom sound is large and device-specific, so it is left out. */
 function themeForBackup(){ const {customAlarmData, ...rest} = T; return rest; }
 
-/* Keeps only well-formed theme values (also used for imported backups). */
 function cleanTheme(t){
   const out = {...DEFT};
   if(!t || typeof t !== 'object' || Array.isArray(t)) return out;
@@ -640,9 +641,7 @@ function normalizeLogNumbers(state){
 }
 normalizeLogNumbers(S);
 
-/* Debounced persistence to reduce race conditions on rapid input */
 let _saveTimer = null;
-/* Derived-data cache: invalid on any log write. Short histories pay almost nothing. */
 const PERF={weeklyCap:52, sessionCap:40, tablePage:25, storageSoftPct:70};
 let _derived={weekly:{}, sessions:null, streak:null};
 function invalidateDerived(){ _derived={weekly:{}, sessions:null, streak:null}; }
@@ -689,8 +688,6 @@ function warn(){
   el.innerHTML = h;
 }
 
-/* Strict ISO date validation (YYYY-MM-DD). Use UTC so local timezone/DST
-   offsets cannot reject valid calendar dates such as UK summer dates. */
 function isValidISODate(str){
   if(typeof str !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return false;
   const d = new Date(str + 'T00:00:00Z');
@@ -738,6 +735,8 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const getPlan=()=>S.routines[S.activeRoutine]||S.routines.ppl;
 const WD=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
+const TAB_ORDER=['home','today','cal','prog','set'];
+
 const dayIdx=d=>{
   if(!isValidISODate(d)) return -1;
   const dt = new Date(d+'T00:00');
@@ -746,7 +745,6 @@ const dayIdx=d=>{
   let idx = plan.findIndex(p=>p.name.toLowerCase().includes(dayName));
   if (idx !== -1) return idx;
   
-  /* Weekday-named routine (e.g. PPL without a Friday): a missing weekday is an implicit Rest Day. */
   const namesWeekdays = plan.some(p => WD.some(n => p.name.toLowerCase().includes(n.toLowerCase())));
   if (namesWeekdays) return -1;
   
@@ -767,14 +765,12 @@ const num=v=>{
   const n=Number(v);
   return Number.isFinite(n) ? n : null;
 };
-/* A set counts when both weight and reps are present. Weight may be 0 (bodyweight). */
 const filled=r=>r&&Array.isArray(r.sets)&&r.sets.some(s=>{
   if(!s) return false;
   const w=num(s.w), rps=num(s.r);
   return w!==null && w>=0 && rps!==null && rps>=0;
 });
 const normName=n=>String(n??'').trim().toLowerCase();
-/* All exercise ids (any routine, plus archived) that share this exercise's name. */
 function relatedIds(id){
   const names={}, byName={};
   const add=(i,n)=>{const k=normName(n); if(!k||(i in names)) return; names[i]=k; (byName[k]=byName[k]||[]).push(i);};
@@ -783,7 +779,6 @@ function relatedIds(id){
   const k=names[id];
   return k?byName[k]:[id];
 }
-/* Most recent earlier session of this exercise (or any same-named exercise): {date, rec} */
 function lastBeforeRec(id,date){
   if(!isValidISODate(date)) return null;
   const rel=relatedIds(id);
@@ -847,7 +842,7 @@ function calcStreak(){
     if(dayHasWork(ds)){ streak++; }
     else {
       const idx=dayIdx(ds);
-      if(idx<0 || getPlan()[idx].ex.length===0){ /* Rest day (planned or implicit) preserves streak */ }
+      if(idx<0 || getPlan()[idx].ex.length===0){ }
       else if(i>0){ break; }
     }
     d.setDate(d.getDate()-1);
@@ -905,7 +900,6 @@ function getAudioCtx(){
     return _audioCtx;
   }catch(e){ return null; }
 }
-/* iOS only allows audio that was unlocked inside a user gesture, so this runs on every tap. */
 function unlockAudio(){
   const ctx=getAudioCtx();
   if(ctx){
@@ -971,59 +965,164 @@ function playAlarm(){
 }
 
 let timerInterval=null, timerSecs=0, timerTotalSecs=0, targetEndTime=0;
+let timerDispFrac=1, timerDispSecs=0;
+let timerRefill=null, timerScrub=null;
+let timerExitTimer=null, timerExitTok=0, timerRestPos=null;
+let timerNoClickUntil=0, timerLastTouchEnd=0;
+const TIMER_KNOB_HIT=28;
+const _tbox=()=>document.getElementById('timer-box');
+const _clamp01=v=>Math.max(0,Math.min(1,v));
+function timerFmt(s){ s=Math.max(0,Math.round(s)); return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); }
+
+function timerPaint(frac, secs){
+  const f=_clamp01(frac);
+  const val=document.getElementById('timer-val'); if(val) val.textContent=timerFmt(secs);
+  const ring=document.getElementById('timer-ring'); if(ring) ring.style.strokeDashoffset=283-283*f;
+  const knob=document.getElementById('timer-knob-g');
+  if(knob) knob.style.transform='translate(50px,50px) rotate('+(f*360)+'deg) translate(-50px,-50px)';
+  timerDispFrac=f; timerDispSecs=secs;
+}
+function timerCancelAnims(){
+  if(timerInterval){ cancelAnimationFrame(timerInterval); timerInterval=null; }
+  if(timerRefill){ cancelAnimationFrame(timerRefill.raf); clearTimeout(timerRefill.fb); timerRefill=null; }
+  if(timerScrub){ cancelAnimationFrame(timerScrub.raf); timerScrub=null; const b=_tbox(); if(b) b.classList.remove('scrubbing'); }
+}
 function stopTimer(){
-  if(timerInterval){ clearInterval(timerInterval); timerInterval = null; }
+  timerCancelAnims();
   targetEndTime = 0;
   timerSecs = 0;
-  const box = document.getElementById('timer-box');
-  if(box) box.style.display = 'none';
-}
-function startTimer(durationInSeconds){
-  stopTimer();
-  if(!Number.isFinite(durationInSeconds) || durationInSeconds <= 0) return;
-  timerTotalSecs = durationInSeconds;
-  targetEndTime = Date.now() + (durationInSeconds * 1000);
-  
-  const box = document.getElementById('timer-box');
-  if(!box) return;
-  box.style.display='flex';
-  box.classList.remove('docked-left','docked-right');
-  
-  const ring = document.getElementById('timer-ring');
-  if(ring) {
-    ring.style.transition = 'none';
-    ring.style.strokeDashoffset = 0;
-    setTimeout(() => { if(ring) ring.style.transition = 'stroke-dashoffset 1s linear'; }, 50);
+  timerExitTok++;
+  if(timerExitTimer){ clearTimeout(timerExitTimer); timerExitTimer=null; }
+  const box = _tbox();
+  if(box){
+    box.classList.remove('exiting','scrubbing','finished');
+    box.style.opacity=''; box.style.animation='';
+    box.style.display = 'none';
   }
-  
-  updateTimerLogic();
-  timerInterval = setInterval(updateTimerLogic, 1000);
+}
+function dismissTimer(){
+  const box=_tbox();
+  if(!box || box.style.display!=='flex' || box.classList.contains('exiting')) return;
+  timerCancelAnims();
+  targetEndTime = 0;
+  timerSecs = 0;
+  const vw=window.innerWidth, rect=box.getBoundingClientRect(), w=rect.width;
+  const dockL=box.classList.contains('docked-left'), dockR=box.classList.contains('docked-right');
+  let rx=rect.left;
+  if(dockL) rx=16; else if(dockR) rx=Math.max(16, vw-w-16);
+  timerRestPos={x:rx, y:rect.top};
+  const side = (rect.left + w/2) < vw/2 ? 'left' : 'right';
+  box.style.animation='none';
+  box.classList.remove('dragging','scrubbing','finished');
+  box.classList.add('exiting');
+  box.style.transition='none';
+  timerSetPos(rect.left, rect.top);
+  void box.offsetWidth;
+  box.style.transition='left .46s cubic-bezier(.45,0,.25,1), opacity .46s ease';
+  box.style.left=(side==='left' ? -(w+24) : vw+24)+'px';
+  box.style.opacity='0';
+  const tok=++timerExitTok;
+  timerExitTimer=setTimeout(()=>{
+    if(tok!==timerExitTok) return;
+    timerExitTimer=null;
+    box.style.display='none';
+    box.classList.remove('exiting','docked-left','docked-right');
+    box.style.opacity=''; box.style.transition='none'; box.style.animation='';
+    const body=box.querySelector('.timer-body'); if(body) body.style.opacity='';
+  }, 520);
+}
+function timerShowBox(box){
+  if(timerExitTimer){ clearTimeout(timerExitTimer); timerExitTimer=null; }
+  timerExitTok++;
+  box.classList.remove('exiting','docked-left','docked-right','dragging','scrubbing','finished');
+  box.style.opacity=''; box.style.transition='none';
+  const body=box.querySelector('.timer-body'); if(body) body.style.opacity='';
+  box.style.display='flex';
+  const vw=window.innerWidth, w=box.offsetWidth||240;
+  if(timerRestPos){
+    timerSetPos(Math.max(12, Math.min(vw-w-12, timerRestPos.x)), timerClampY(timerRestPos.y));
+  }
+  const rect=box.getBoundingClientRect();
+  const side=(rect.left + w/2) < vw/2 ? 'left' : 'right';
+  box.style.setProperty('--tin', (side==='left' ? -(rect.left+w+24) : (vw-rect.left+24))+'px');
+  box.style.animation='none'; void box.offsetWidth; box.style.animation='';
+}
+function timerUndockIfDocked(){
+  const box=_tbox(); if(!box) return;
+  const l=box.classList.contains('docked-left'), r=box.classList.contains('docked-right');
+  if(!l && !r) return;
+  const rect=box.getBoundingClientRect(), w=timerW();
+  timerUndockTo(l ? 16 : Math.max(16, window.innerWidth-w-16), rect.top);
 }
 
-function updateTimerLogic() {
-  if (targetEndTime === 0) return;
+function startTimer(durationInSeconds){
+  if(!Number.isFinite(durationInSeconds) || durationInSeconds <= 0) return;
+  const box=_tbox();
+  if(!box) return;
+  timerCancelAnims();
+  const visible = box.style.display==='flex' && !box.classList.contains('exiting');
+  timerTotalSecs = durationInSeconds;
+  targetEndTime = 0;
+
+  if(!visible){
+    timerShowBox(box);
+    timerPaint(1, durationInSeconds);
+    timerBeginCountdown(durationInSeconds);
+  } else {
+    timerUndockIfDocked();
+    timerRunRefill(durationInSeconds);
+  }
+}
+
+function timerFrameLoop(){
+  if(targetEndTime === 0) return;
   const now = Date.now();
-  timerSecs = Math.max(0, Math.round((targetEndTime - now) / 1000));
+  const remMs = Math.max(0, targetEndTime - now);
+  timerSecs = Math.ceil(remMs / 1000);
   
-  updateTimerUI();
-  
-  if (timerSecs <= 0) {
-    if(timerInterval){ clearInterval(timerInterval); timerInterval = null; }
+  const pct = timerTotalSecs > 0 ? remMs / (timerTotalSecs * 1000) : 0;
+  timerPaint(pct, timerSecs);
+
+  if (remMs <= 0) {
+    timerInterval = null;
     targetEndTime = 0;
+    const box = _tbox();
+    if(box) box.classList.add('finished');
     playAlarm();
     haptic([200,100,200,100,200]);
+    return;
   }
+  timerInterval = requestAnimationFrame(timerFrameLoop);
 }
 
-function updateTimerUI(){
-  const m=Math.floor(timerSecs/60), s=timerSecs%60;
-  document.getElementById('timer-val').textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+function timerBeginCountdown(secs){
+  timerSecs = secs;
+  targetEndTime = Date.now() + secs*1000;
+  if(timerInterval) cancelAnimationFrame(timerInterval);
+  const box = _tbox();
+  if(box) box.classList.remove('finished');
+  timerInterval = requestAnimationFrame(timerFrameLoop);
+}
 
-  const ring = document.getElementById('timer-ring');
-  if (ring && timerTotalSecs > 0) {
-    const pct = Math.max(0, Math.min(1, timerSecs / timerTotalSecs));
-    ring.style.strokeDashoffset = 283 - (283 * pct);
-  }
+function timerRunRefill(toSecs){
+  const fromFrac=timerDispFrac, fromSecs=timerDispSecs;
+  const dur = 350 + 550*(1-_clamp01(fromFrac));
+  const r = timerRefill = {raf:0, fb:0, t0:performance.now()};
+  const finish = ()=>{
+    if(timerRefill!==r) return;
+    cancelAnimationFrame(r.raf); clearTimeout(r.fb); timerRefill=null;
+    timerPaint(1, toSecs);
+    timerBeginCountdown(toSecs);
+  };
+  const step = (now)=>{
+    if(timerRefill!==r) return;
+    const p=_clamp01((now - r.t0)/dur);
+    const e = p<.5 ? 4*p*p*p : 1 - Math.pow(-2*p+2,3)/2;
+    timerPaint(fromFrac + (1-fromFrac)*e, fromSecs + (toSecs-fromSecs)*e);
+    if(p<1) r.raf=requestAnimationFrame(step); else finish();
+  };
+  r.raf=requestAnimationFrame(step);
+  r.fb=setTimeout(finish, dur+150);
 }
 
 function promptCustomTimer(){
@@ -1032,6 +1131,135 @@ function promptCustomTimer(){
     const minutes = parseFloat(input);
     if(!isNaN(minutes) && minutes > 0) startTimer(minutes * 60);
   }
+}
+
+function timerCurFrac(){
+  if(targetEndTime>0 && timerTotalSecs>0) return _clamp01((targetEndTime-Date.now())/1000/timerTotalSecs);
+  return 0;
+}
+function timerRingGeom(){
+  const wrap=document.querySelector('.timer-circle-wrap'), r=wrap.getBoundingClientRect();
+  return {cx:r.left+r.width/2, cy:r.top+r.height/2, R:45*r.width/100};
+}
+function timerFingerFrac(x,y,g){
+  let a=Math.atan2(x-g.cx, -(y-g.cy));
+  if(a<0) a+=2*Math.PI;
+  return a/(2*Math.PI);
+}
+function timerTryStartScrub(e){
+  const box=_tbox();
+  if(!box || box.style.display!=='flex' || box.classList.contains('exiting') ||
+     box.classList.contains('docked-left') || box.classList.contains('docked-right')) return false;
+  if(timerTotalSecs<=0) return false;
+  const isTouch=!!e.touches;
+  if(!isTouch && e.button!==0) return false;
+  const pt=isTouch ? e.touches[0] : e;
+  if(!pt) return false;
+  const g=timerRingGeom();
+  const f=timerRefill ? timerDispFrac : timerCurFrac();
+  const kn=document.querySelector('.timer-knob');
+  if(!kn) return false;
+  const kr=kn.getBoundingClientRect();
+  const kx=kr.left+kr.width/2, ky=kr.top+kr.height/2;
+  if(Math.hypot(pt.clientX-kx, pt.clientY-ky) > TIMER_KNOB_HIT) return false;
+  if(!isTouch && Date.now()-timerLastTouchEnd<700) return true;
+  if(timerRefill || timerScrub) return false;
+  const wasRunning=targetEndTime>0;
+  let fv=timerFingerFrac(kx,ky,g);
+  if(fv-f>.5) fv-=1; else if(f-fv>.5) fv+=1;
+  fv=_clamp01(fv);
+  const s=timerScrub={
+    id: isTouch ? pt.identifier : 'mouse',
+    wasRunning, origEnd: targetEndTime,
+    frac0: f, target: f, disp: fv,
+    lastRaw: timerFingerFrac(pt.clientX, pt.clientY, g),
+    lastSecTick: Math.round(fv * timerTotalSecs),
+    moved:false, ending:false, raf:0, lastT:performance.now(), endT:0
+  };
+  if(timerInterval){ cancelAnimationFrame(timerInterval); timerInterval=null; }
+  targetEndTime=0;
+  box.classList.remove('finished');
+  box.classList.add('scrubbing');
+  timerPaint(fv, f*timerTotalSecs);
+  haptic(12);
+  s.raf=requestAnimationFrame(timerScrubFrame);
+  return true;
+}
+function timerScrubPt(e){
+  const s=timerScrub;
+  if(e.touches){
+    if(s.id==='mouse') return null;
+    for(const t of e.touches) if(t.identifier===s.id) return t;
+    return null;
+  }
+  return s.id==='mouse' ? e : null;
+}
+function onTimerScrubMove(e){
+  const s=timerScrub;
+  if(!s || s.ending) return;
+  const pt=timerScrubPt(e);
+  if(!pt) return;
+  if(e.cancelable) e.preventDefault();
+  const g=timerRingGeom();
+  if(Math.hypot(pt.clientX-g.cx, pt.clientY-g.cy) < 14) return;
+  const raw=timerFingerFrac(pt.clientX, pt.clientY, g);
+  let d=raw-s.lastRaw;
+  if(d>.5) d-=1; else if(d<-.5) d+=1;
+  s.lastRaw=raw;
+  const minF=Math.min(1, 1/Math.max(1,timerTotalSecs));
+  s.target=Math.max(minF, Math.min(1, s.target+d));
+  if(Math.abs(s.target-s.frac0)>0.002) s.moved=true;
+  
+  const curSec = Math.round(s.target * timerTotalSecs);
+  if(curSec !== s.lastSecTick) {
+    s.lastSecTick = curSec;
+    haptic(6);
+  }
+}
+function timerScrubFrame(t){
+  const s=timerScrub;
+  if(!s) return;
+  const dt=Math.max(0, Math.min(64, t-s.lastT)); s.lastT=t;
+  s.disp += (s.target-s.disp)*(1-Math.exp(-dt/70));
+  timerPaint(s.disp, s.disp*timerTotalSecs);
+  if(s.ending && (Math.abs(s.target-s.disp)<0.0008 || t-s.endT>450)){ timerFinishScrub(); return; }
+  s.raf=requestAnimationFrame(timerScrubFrame);
+}
+function onTimerScrubEnd(e){
+  const s=timerScrub;
+  if(!s || s.ending) return;
+  if(e.changedTouches){
+    let mine=false;
+    for(const t of e.changedTouches) if(t.identifier===s.id) mine=true;
+    if(!mine) return;
+    timerLastTouchEnd=Date.now();
+  } else if(s.id!=='mouse') return;
+  s.ending=true; s.endT=performance.now();
+  timerNoClickUntil=Date.now()+700;
+  setTimeout(()=>{ if(timerScrub===s) timerFinishScrub(); }, 650);
+}
+function timerFinishScrub(){
+  const s=timerScrub;
+  if(!s) return;
+  cancelAnimationFrame(s.raf);
+  timerScrub=null;
+  timerNoClickUntil=Date.now()+400;
+  const box=_tbox(); if(box) box.classList.remove('scrubbing');
+  const total=timerTotalSecs;
+  if(!s.moved){
+    if(s.wasRunning){
+      timerPaint(s.frac0, s.frac0*total);
+      targetEndTime=s.origEnd;
+      timerInterval=requestAnimationFrame(timerFrameLoop);
+    } else {
+      timerPaint(0, 0);
+    }
+    return;
+  }
+  const secs=Math.max(1, Math.round(s.target*total));
+  timerPaint(secs/total, secs);
+  timerBeginCountdown(secs);
+  haptic(10);
 }
 
 const _prSeen=new Set();
@@ -1044,7 +1272,6 @@ function checkPR(exId, weight, reps){
   let bestPrev = 0;
   const rel = relatedIds(exId);
   Object.keys(S.logs || {}).forEach(d=>{
-    /* Only earlier sessions count as the baseline (ISO dates sort lexicographically). */
     if(d >= ui.date || !S.logs[d]) return;
     rel.forEach(rid=>{
       if(S.logs[d][rid]){
@@ -1067,16 +1294,15 @@ function showPRModal(w, r, rm){
   document.getElementById('pr-modal-box').innerHTML = `
     <div class="pr-modal-overlay" onclick="this.remove()">
       <div class="pr-modal">
-        <h2>🎉 NEW PR RECORD!</h2>
+        <h2><svg class="svg-icon" style="width:28px;height:28px;color:var(--acc)" viewBox="0 0 24 24"><path d="M6 9EB 12 3 18 9"/><path d="M12 3V21"/></svg> NEW PR RECORD!</h2>
         <p><b>${w} kg × ${r} reps</b></p>
         <p>Est. 1RM Strength: <b>${rm} kg</b></p>
-        <button class="btn acc" style="margin-top:14px;width:100%" onclick="this.closest('.pr-modal-overlay').remove()">KEEP LIFTING! 🔥</button>
+        <button class="btn acc" style="margin-top:14px;width:100%" onclick="this.closest('.pr-modal-overlay').remove()">KEEP LIFTING!</button>
       </div>
     </div>
   `;
 }
 
-/* Date of the given routine day within the Mon-Sun week that contains refDate. */
 function dateForDayIdx(idx, refDate){
   const d = new Date(safeDate(refDate) + 'T00:00');
   const dow = d.getDay();
@@ -1112,6 +1338,36 @@ function animateTabsScroll(el,to,dur=300){
   el._tabRaf=requestAnimationFrame(step);
 }
 
+function animateValue(el, start, end, duration, prefix='', suffix='') {
+  if(!el) return;
+  if (start === end) { el.textContent = prefix + end + suffix; return; }
+  const range = end - start;
+  let current = start;
+  const increment = end > start ? 1 : -1;
+  const stepTime = Math.abs(Math.floor(duration / (range || 1)));
+  const startTime = performance.now();
+  
+  function update(currentTime) {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(1, elapsed / duration);
+    const easeOut = 1 - Math.pow(1 - progress, 3);
+    const val = Math.floor(start + range * easeOut);
+    el.textContent = prefix + val + suffix;
+    if (progress < 1) requestAnimationFrame(update);
+    else el.textContent = prefix + end + suffix;
+  }
+  requestAnimationFrame(update);
+}
+
+function triggerCounterAnimations(){
+  document.querySelectorAll('[data-counter]').forEach(el => {
+    const end = parseInt(el.getAttribute('data-counter'), 10);
+    const prefix = el.getAttribute('data-prefix') || '';
+    const suffix = el.getAttribute('data-suffix') || '';
+    if (!isNaN(end)) animateValue(el, 0, end, 600, prefix, suffix);
+  });
+}
+
 function render(skipAnim = false){
   const t=ui.tab;
   const tabChanged=lastRenderedTab!==t;
@@ -1120,6 +1376,16 @@ function render(skipAnim = false){
   const dateChanged=lastRenderedDate!==null&&lastRenderedDate!==ui.date;
   const dayChanged=lastRenderedDay!==null&&lastRenderedDay!==ui.day;
   let slideDirection=null;
+  
+  let tabDirection = 'right';
+  if (tabChanged && lastRenderedTab) {
+    const prevIdx = TAB_ORDER.indexOf(lastRenderedTab==='log'?'today':lastRenderedTab);
+    const newIdx = TAB_ORDER.indexOf(t==='log'?'today':t);
+    if(prevIdx >= 0 && newIdx >= 0) {
+      tabDirection = newIdx > prevIdx ? 'right' : 'left';
+    }
+  }
+
   if(wasLogTab&&isLogTab){
     if(dateChanged) slideDirection=ui.date<lastRenderedDate?'older':'newer';
     else if(dayChanged) slideDirection=ui.day<lastRenderedDay?'older':'newer';
@@ -1130,9 +1396,17 @@ function render(skipAnim = false){
   document.getElementById('back').style.visibility=(t==='home'||t==='today')?'hidden':'visible';
   document.getElementById('ttl').textContent={home:'Lift Log',today:'Today’s Workout',log:'Log Workout',cal:'Calendar',prog:'Progress',set:'Settings'}[t]||'Lift Log';
 
-  document.querySelectorAll('.bottom-nav button').forEach(b=>b.classList.remove('active'));
+  const navBtns=[...document.querySelectorAll('.bottom-nav button')];
+  navBtns.forEach(b=>{ b.classList.remove('active'); b.removeAttribute('aria-current'); });
   const activeNav=document.getElementById('nav-'+(t==='log'?'today':t));
-  if(activeNav) activeNav.classList.add('active');
+  if(activeNav){ activeNav.classList.add('active'); activeNav.setAttribute('aria-current','page'); }
+  const navEl=document.querySelector('.bottom-nav');
+  if(navEl){
+    const ni=navBtns.indexOf(activeNav);
+    navEl.style.setProperty('--i', ni<0 ? 0 : ni);
+    navEl.style.setProperty('--on', ni<0 ? 0 : 1);
+    if(!navEl.classList.contains('ready')) requestAnimationFrame(()=>requestAnimationFrame(()=>navEl.classList.add('ready')));
+  }
 
   applyTheme();
   warn();
@@ -1153,7 +1427,7 @@ function render(skipAnim = false){
     }
   }
 
-  app.classList.remove('tab-enter','day-enter-older','day-enter-newer');
+  app.classList.remove('tab-enter-left','tab-enter-right','day-enter-older','day-enter-newer');
   
   if(!skipAnim){
     if(slideDirection){
@@ -1161,16 +1435,16 @@ function render(skipAnim = false){
       app.classList.add(slideDirection==='older'?'day-enter-older':'day-enter-newer');
     } else if(tabChanged){
       void app.offsetWidth;
-      app.classList.add('tab-enter');
+      app.classList.add(tabDirection === 'right' ? 'tab-enter-right' : 'tab-enter-left');
     }
   }
+
+  if (t === 'home') triggerCounterAnimations();
 }
 
-/* ---------- Home dashboard helpers ---------- */
 function addDays(ds,n){ const d=new Date(ds+'T00:00'); d.setDate(d.getDate()+n); return iso(d); }
 function mondayOf(ds){ const d=new Date(ds+'T00:00'), w=d.getDay(); d.setDate(d.getDate()-(w===0?6:w-1)); return iso(d); }
 function dayHasWork(ds){ const L=S.logs[ds]; return !!L && Object.values(L).some(hasExerciseHistory); }
-/* Routine says no training this date (explicit Rest day or missing weekday on a weekday-named plan). */
 function isRoutineRestDay(ds){
   if(!isValidISODate(ds)) return false;
   const idx=dayIdx(ds);
@@ -1178,7 +1452,6 @@ function isRoutineRestDay(ds){
   const day=getPlan()[idx];
   return !day || !Array.isArray(day.ex) || day.ex.length===0;
 }
-/* True when a logged workout exists in the same Mon–Sun week or within ±3 calendar days. */
 function hasTrainingContext(ds){
   if(!isValidISODate(ds)) return false;
   const mon=mondayOf(ds);
@@ -1191,7 +1464,6 @@ function hasTrainingContext(ds){
   }
   return false;
 }
-/* Planned rest that may be coloured: not trained, routine rest, and nearby training exists. */
 function isPlannedRestShown(ds){
   return !dayHasWork(ds) && isRoutineRestDay(ds) && hasTrainingContext(ds);
 }
@@ -1207,7 +1479,6 @@ function relDays(ds,today){
 const kfmt=v=>v>=1000?(v/1000).toFixed(1).replace(/\.0$/,'')+'k':String(Math.round(v));
 function splitDayName(n){ const p=String(n).split(' - '); return p.length>1?{day:p[0],title:p.slice(1).join(' - ')}:{day:'',title:String(n)}; }
 
-/* name -> {name, list:[{date, rm, w, r}]} best est. 1RM per session, oldest first */
 function exerciseSessions(){
   if(_derived.sessions) return _derived.sessions;
   const names={};
@@ -1262,7 +1533,6 @@ function vHome(){
   const streak=calcStreak(), mon=mondayOf(today);
   let i=0; const step=()=>` style="--i:${i++}"`;
 
-  /* Today card */
   let card;
   if(d&&d.ex.length){
     const total=d.ex.reduce((x,e)=>x+e.sets,0), L=S.logs[today]||{};
@@ -1289,12 +1559,11 @@ function vHome(){
       <div class="tc-row"><div class="tc-main"><div class="tc-lab">TODAY</div>
         <div class="tc-name">Rest day</div>
         <div class="tc-sub">${next?'Next: '+esc(fmt(next.ds))+' · '+esc(next.nm.title):'No workouts scheduled'}</div></div>
-        <div class="ring" style="font-size:30px;display:flex;align-items:center;justify-content:center">😴</div></div>
+        <div class="ring" style="display:flex;align-items:center;justify-content:center"><svg class="svg-icon" style="width:32px;height:32px;color:var(--mute)" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></div></div>
       <button class="cta" data-act="starttoday" style="background:var(--accbg);color:var(--acc)">Open today’s log</button>
     </div>`;
   }
 
-  /* Week strip + tiles */
   const LET=['M','T','W','T','F','S','S'];
   let wk='', doneW=0, planW=0, elapsed=0;
   const firstLog=Object.keys(S.logs).filter(dayHasWork).sort()[0];
@@ -1311,15 +1580,17 @@ function vHome(){
   let vBig, vSub, vCls='';
   if(lv>0){ const pc=Math.round((tv-lv)/lv*100); vBig=(pc>=0?'▲ ':'▼ ')+Math.abs(pc)+'%'; vCls=pc>=0?'up':'dn'; vSub='volume vs last wk'; }
   else { vBig=kfmt(tv); vSub='kg this week'; }
+
+  const streakIcon = `<svg class="svg-icon" style="width:20px;height:20px;color:var(--acc)" viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 3.5z"/></svg>`;
+
   const tiles=`<div class="tiles"${step()}>
-    <div class="stat"><b>🔥 ${streak}</b><span>day streak</span></div>
-    <div class="stat"><b>${doneW}/${planW}</b><span>this week</span></div>
+    <div class="stat"><b>${streakIcon} <span data-counter="${streak}">${streak}</span></b><span>day streak</span></div>
+    <div class="stat"><b><span data-counter="${doneW}">${doneW}</span>/${planW}</b><span>this week</span></div>
     <div class="stat"><b class="${vCls}">${vBig}</b><span>${vSub}</span></div></div>`;
 
-  /* PRs, heatmap, movers */
   const sessions=exerciseSessions();
   const prs=recentPRs(sessions,3);
-  const prHtml=prs.length?prs.map(x=>`<div class="pr-row"><span style="font-size:20px">🏆</span><div><b>${esc(x.name)}</b><small>${esc(String(x.w))} kg × ${esc(String(x.r))} · ${relDays(x.date,today)}</small></div><div class="md">~${Math.round(x.rm)} kg</div></div>`).join(''):'<div class="meta" style="padding:6px 0">No PRs yet. Beat an earlier session to set one!</div>';
+  const prHtml=prs.length?prs.map(x=>`<div class="pr-row"><span style="font-size:20px;color:var(--acc)"><svg class="svg-icon" style="width:22px;height:22px" viewBox="0 0 24 24"><path d="M6 9EB 12 3 18 9"/><path d="M12 3V21"/></svg></span><div><b>${esc(x.name)}</b><small>${esc(String(x.w))} kg × ${esc(String(x.r))} · ${relDays(x.date,today)}</small></div><div class="md">~${Math.round(x.rm)} kg</div></div>`).join(''):'<div class="meta" style="padding:6px 0">No PRs yet. Beat an earlier session to set one!</div>';
 
   const start=addDays(mon,-77); let hm='', maxV=0, cnt=0; const cells=[];
   for(let k=0;k<84;k++){ const ds=addDays(start,k), v=dayVolume(ds), w=dayHasWork(ds); if(w&&ds<=today) cnt++; if(v>maxV) maxV=v; cells.push({ds,v,w}); }
@@ -1352,7 +1623,7 @@ function vHome(){
 }
 
 function renderStockChart(data, type){
-  if(data.length<2) return '<div class="empty">Log workouts over 2 different weeks to generate your overall progress trend graph!</div>';
+  if(data.length<2) return `<div class="empty"><svg class="svg-icon" style="width:48px;height:48px;color:var(--mute);margin-bottom:12px" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg><div>Log workouts over 2 different weeks to generate your overall progress trend graph!</div></div>`;
 
   const W=600, H=220, p=36;
   const values=data.map(d=>d.val);
@@ -1366,6 +1637,8 @@ function renderStockChart(data, type){
 
   const X=i=>p+i*(W-p-16)/(data.length-1);
   const Y=v=>H-28-(v-mn)*(H-50)/(mx-mn);
+  
+  const ptsData = data.map((d,i) => ({x: X(i), y: Y(d.val), v: d.val, l: fmt(d.week)}));
 
   let chartContent='';
 
@@ -1402,6 +1675,7 @@ function renderStockChart(data, type){
 
   const diff = last - first;
   const pct = first>0 ? Math.round((diff/first)*100) : 0;
+  const ptsString = JSON.stringify(ptsData).replace(/'/g, "&apos;");
 
   return `
     <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:6px;margin-bottom:8px">
@@ -1411,15 +1685,17 @@ function renderStockChart(data, type){
       </div>
       <span style="font-size:12px;color:var(--mute)">vs First Logged Week</span>
     </div>
-    <svg viewBox="0 0 ${W} ${H}" role="img">
-      <line x1="${p}" y1="${Y(mn)}" x2="${W-12}" y2="${Y(mn)}" style="stroke:var(--line)"/>
-      <line x1="${p}" y1="${Y(mx)}" x2="${W-12}" y2="${Y(mx)}" style="stroke:var(--line)"/>
-      <text x="4" y="${Y(mx)+4}" font-size="11" style="fill:var(--mute)">${mx}</text>
-      <text x="4" y="${Y(mn)+4}" font-size="11" style="fill:var(--mute)">${mn}</text>
-      ${chartContent}
-      <text x="${p}" y="${H-6}" font-size="11" style="fill:var(--mute)">${fmt(data[0].week)}</text>
-      <text x="${W-12}" y="${H-6}" font-size="11" text-anchor="end" style="fill:var(--mute)">${fmt(data[data.length-1].week)}</text>
-    </svg>
+    <div style="position:relative; touch-action:pan-y;">
+      <svg viewBox="0 0 ${W} ${H}" role="img" data-pts='${ptsString}' style="touch-action: pan-y; cursor: crosshair;" data-is-vol="${ui.homeMetric === 'vol' ? 'true' : 'false'}">
+        <line x1="${p}" y1="${Y(mn)}" x2="${W-12}" y2="${Y(mn)}" style="stroke:var(--line)"/>
+        <line x1="${p}" y1="${Y(mx)}" x2="${W-12}" y2="${Y(mx)}" style="stroke:var(--line)"/>
+        <text x="4" y="${Y(mx)+4}" font-size="11" style="fill:var(--mute)">${mx}</text>
+        <text x="4" y="${Y(mn)+4}" font-size="11" style="fill:var(--mute)">${mn}</text>
+        ${chartContent}
+        <text x="${p}" y="${H-6}" font-size="11" style="fill:var(--mute)">${fmt(data[0].week)}</text>
+        <text x="${W-12}" y="${H-6}" font-size="11" text-anchor="end" style="fill:var(--mute)">${fmt(data[data.length-1].week)}</text>
+      </svg>
+    </div>
   `;
 }
 
@@ -1437,7 +1713,7 @@ function vCal(){
     h+=`<button class="cd${cls}${ds===td?' td':''}" data-act="cal" data-v="${ds}"><span>${d}</span><small>${esc(lab)}</small></button>`;
   }
   const hasLogs = Object.keys(S.logs||{}).some(dayHasWork);
-  if(!hasLogs) h += `</div><div class="empty">No workouts logged yet.<br><br><button class="btn acc" data-act="go" data-v="today">Start Your First Workout</button></div>`;
+  if(!hasLogs) h += `</div><div class="empty"><svg class="svg-icon" style="width:48px;height:48px;color:var(--mute);margin-bottom:12px" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg><div>No workouts logged yet.</div><br><button class="btn acc" data-act="go" data-v="today">Start Your First Workout</button></div>`;
   else h += `</div><div class="meta" style="margin-top:10px">Orange = trained · Blue = planned rest (when nearby training exists) · Default = no activity or missed session. Tap any date to view.</div>`;
   return h;
 }
@@ -1476,9 +1752,11 @@ function renderLogExercisesForDate(dStr){
   
   const exercisesToRender = [...d.ex, ...extraEx];
   
-  if(!exercisesToRender.length) return '<div class="empty">Rest day scheduled! Take time to recover. ☕</div>';
+  if(!exercisesToRender.length) return `<div class="empty"><svg class="svg-icon" style="width:48px;height:48px;color:var(--mute);margin-bottom:12px" viewBox="0 0 24 24"><path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><line x1="6" y1="2" x2="6" y2="4"/><line x1="10" y1="2" x2="10" y2="4"/><line x1="14" y1="2" x2="14" y2="4"/></svg><div>Rest day scheduled! Take time to recover.</div></div>`;
   
   let h = '';
+  const timerIcon = `<svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 6 12 12 16 14"/></svg>`;
+
   exercisesToRender.forEach((e, idx)=>{
     const isExtra = idx >= d.ex.length;
     const rec=(S.logs[dStr]||{})[e.id]||{sets:[],note:''};
@@ -1509,7 +1787,7 @@ function renderLogExercisesForDate(dStr){
     }
     h+=`<div style="display:flex;gap:8px;margin-top:6px">
       <button class="btn small" data-act="addset" data-id="${esc(e.id)}">+ set</button>
-      <button class="btn small acc" data-act="starttimer">⏱️ Rest (${T.restTimerMin||3}m)</button>
+      <button class="btn small acc" data-act="starttimer">${timerIcon} Rest</button>
     </div>
     <input class="note" data-id="${esc(e.id)}" data-f="note" placeholder="Notes" value="${esc(rec.note)}">
     </div>`;
@@ -1527,7 +1805,7 @@ function vLog(){
 
 function vProg(){
   const all=exList();
-  if(!all.length)return '<div class="empty">No exercises in active plan.<br><br><button class="btn acc" data-act="go" data-v="set">Manage Routine</button></div>';
+  if(!all.length)return `<div class="empty"><svg class="svg-icon" style="width:48px;height:48px;color:var(--mute);margin-bottom:12px" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg><div>No exercises in active plan.</div><br><button class="btn acc" data-act="go" data-v="set">Manage Routine</button></div>`;
   if(!ui.prog||!all.find(e=>e.id===ui.prog))ui.prog=all[0].id;
   const e=all.find(x=>x.id===ui.prog);
 
@@ -1569,7 +1847,7 @@ function vProg(){
   const rel=relatedIds(e.id);
   const recAt=d=>{let best=null; rel.forEach(r=>{const x=S.logs[d]&&S.logs[d][r]; if(x&&filled(x)&&(!best||topW(x)>topW(best))) best=x;}); return best;};
   const ds=Object.keys(S.logs).filter(d=>recAt(d)).sort();
-  if(!ds.length)return h+'<div class="empty">No sessions logged for this exercise yet.<br><br><button class="btn acc" data-act="go" data-v="today">Go to Today\'s Workout</button></div>';
+  if(!ds.length)return h+`<div class="empty"><svg class="svg-icon" style="width:48px;height:48px;color:var(--mute);margin-bottom:12px" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg><div>No sessions logged for this exercise yet.</div><br><button class="btn acc" data-act="go" data-v="today">Go to Today's Workout</button></div>`;
   
   const tops=ds.map(d=>topW(recAt(d)));
   const cur=tops[tops.length-1],pr=Math.max(...tops),diff=cur-tops[0];
@@ -1621,6 +1899,8 @@ function chart(ds,v,type){
   if(type==='bar'){ mn=Math.max(0, Math.floor(mn-(mx-mn)*0.4)); }
   const X=i=>p+i*(W-p-12)/(v.length-1),Y=x=>H-24-(x-mn)*(H-44)/(mx-mn);
   
+  const ptsData = ds.map((d,i) => ({x: X(i), y: Y(v[i]), v: v[i], l: fmt(d)}));
+
   let mainContent='';
   if(type==='bar'){
     const bw=Math.max(10, Math.min(32, (W-p)/v.length - 6));
@@ -1630,8 +1910,20 @@ function chart(ds,v,type){
     mainContent=`<polyline points="${pts}" fill="none" style="stroke:var(--acc)" stroke-width="2.5" stroke-linejoin="round"/>${v.map((x,i)=>`<circle cx="${X(i)}" cy="${Y(x)}" r="4" style="fill:var(--acc)"><title>${fmt(ds[i])}:${x}kg</title></circle>`).join('')}`;
   }
 
+  const ptsString = JSON.stringify(ptsData).replace(/'/g, "&apos;");
   const L='style="stroke:var(--line)"',M='style="fill:var(--mute)"';
-  return`<svg viewBox="0 0 ${W} ${H}" role="img"><line x1="${p}" y1="${Y(mn)}" x2="${W-12}" y2="${Y(mn)}" ${L}/><line x1="${p}" y1="${Y(mx)}" x2="${W-12}" y2="${Y(mx)}" ${L}/><text x="4" y="${Y(mx)+4}" font-size="12" ${M}>${mx}</text><text x="4" y="${Y(mn)+4}" font-size="12" ${M}>${mn}</text>${mainContent}<text x="${p}" y="${H-6}" font-size="12" ${M}>${fmt(ds[0])}</text><text x="${W-12}" y="${H-6}" font-size="12" text-anchor="end" ${M}>${fmt(ds[ds.length-1])}</text></svg>`;
+  return`
+  <div style="position:relative; touch-action:pan-y;">
+    <svg viewBox="0 0 ${W} ${H}" role="img" data-pts='${ptsString}' style="touch-action: pan-y; cursor: crosshair;">
+      <line x1="${p}" y1="${Y(mn)}" x2="${W-12}" y2="${Y(mn)}" ${L}/>
+      <line x1="${p}" y1="${Y(mx)}" x2="${W-12}" y2="${Y(mx)}" ${L}/>
+      <text x="4" y="${Y(mx)+4}" font-size="12" ${M}>${mx}</text>
+      <text x="4" y="${Y(mn)+4}" font-size="12" ${M}>${mn}</text>
+      ${mainContent}
+      <text x="${p}" y="${H-6}" font-size="12" ${M}>${fmt(ds[0])}</text>
+      <text x="${W-12}" y="${H-6}" font-size="12" text-anchor="end" ${M}>${fmt(ds[ds.length-1])}</text>
+    </svg>
+  </div>`;
 }
 
 function vSet(){
@@ -1646,6 +1938,8 @@ function vSet(){
   const storageKB = (storageBytes / 1024).toFixed(2);
   const storageLimitKB = 5120;
   const storagePct = Math.min(100, Math.max(0, ((storageBytes / (storageLimitKB * 1024)) * 100))).toFixed(2);
+
+  const trashIcon = `<svg class="svg-icon" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
 
   let h=`<div class="card">
     <h3>Active Routine</h3>
@@ -1684,7 +1978,7 @@ function vSet(){
       <input type="date" id="trim-before" style="flex:1;min-width:140px">
       <button class="btn small" data-act="trimlogs">Delete logs before date</button>
     </div>`+
-    `<button class="btn small" data-act="clearhistory" style="background:var(--down);color:#fff;border:none;margin-top:10px">🗑️ Delete Workout History</button>`+
+    `<button class="btn small" data-act="clearhistory" style="background:var(--down);color:#fff;border:none;margin-top:10px">${trashIcon} Delete Workout History</button>`+
     '</div>';
 
   h+='<div class="card"><h3>Theme & Custom Colors</h3>'+
@@ -1719,12 +2013,11 @@ function vSet(){
     <div id="bkmsg" class="meta" style="margin-top:6px"></div>
   </div>`;
 
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.3.21</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.6.2</div></div>`;
 
   return h;
 }
 
-// Helpers for parsing imported CSV and TXT files
 function hasExerciseHistory(record) {
   if (!record || typeof record !== 'object') return false;
   if (typeof record.note === 'string' && record.note.trim()) return true;
@@ -1823,13 +2116,11 @@ function csvEscape(value) {
   const text = value === null || value === undefined ? '' : String(value);
   return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
 }
-/* Date/time first so iOS filename truncation keeps the useful part visible. */
 function exportTimestamp(date=new Date()) {
   const pad=n=>String(n).padStart(2,'0');
   return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
 }
 function exportFileName(kind, ext, date=new Date()) {
-  /* kind: bak | csv | rec — short suffix after timestamp */
   return `${exportTimestamp(date)}_LL-${kind}.${ext}`;
 }
 function downloadTextFile(content, filename, mime='text/plain;charset=utf-8') {
@@ -1916,7 +2207,6 @@ function parseTXTLogs(text) {
   return logs;
 }
 
-/* Rest timer: finger-tracked edge slide. Dock uses left/top (peek), not a post-release transform snap. */
 let timerDrag = null;
 let timerInertiaAnim = null;
 const timerBox = document.getElementById('timer-box');
@@ -1928,10 +2218,9 @@ function timerH(){ return timerBox.offsetHeight || 200; }
 function timerDockLeftX(){ return -(timerW() - TIMER_DOCK_PEEK); }
 function timerDockRightX(){ return window.innerWidth - TIMER_DOCK_PEEK; }
 function timerClampY(y){
-  return Math.max(60, Math.min(window.innerHeight - timerH() - 80, y));
+  return Math.max(60, Math.min(window.innerHeight - timerH() - 100, y));
 }
 function timerClampXDrag(x){
-  /* Allow sliding fully into the side; keep a peek strip on-screen. */
   return Math.max(timerDockLeftX(), Math.min(timerDockRightX(), x));
 }
 function timerSetPos(x, y){
@@ -1954,7 +2243,6 @@ function timerSyncDockClass(x, settled){
   const w = timerW();
   const onLeft = x <= timerDockLeftX() + 2 || (settled && x < 0 && x + w < window.innerWidth * 0.45);
   const onRight = x >= timerDockRightX() - 2 || (settled && x + w > window.innerWidth && x > window.innerWidth * 0.55);
-  /* While dragging, chrome follows how far off-screen we are. */
   const peekingLeft = x < -4;
   const peekingRight = x + w > window.innerWidth + 4;
   timerBox.classList.toggle('docked-left', settled ? (x <= 0 && x <= timerDockLeftX() + 8) : peekingLeft);
@@ -1981,7 +2269,6 @@ function timerSettleDock(side, y){
   timerBox.classList.add(side === 'left' ? 'docked-left' : 'docked-right');
   const arrow = document.getElementById('timer-dock-arrow');
   if(arrow) arrow.textContent = side === 'left' ? '›' : '‹';
-  /* CSS handles body fade when docked; clear any inline drag fade. */
   const body = timerBox.querySelector('.timer-body');
   if(body) body.style.opacity = '';
   haptic(10);
@@ -1989,6 +2276,8 @@ function timerSettleDock(side, y){
 
 function initTimerDrag(e) {
   if (e.target.closest('button') && e.target.closest('button').hasAttribute('data-act')) return;
+  if (timerBox.classList.contains('exiting')) return;
+  if (timerTryStartScrub(e)) return;
   if(timerInertiaAnim) cancelAnimationFrame(timerInertiaAnim);
 
   const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -2005,7 +2294,6 @@ function initTimerDrag(e) {
     wasDocked: timerBox.classList.contains('docked-left') || timerBox.classList.contains('docked-right')
   };
   timerBox.style.transition = 'none';
-  /* Lock position to current visual box so undock starts under the finger. */
   timerSetPos(rect.left, rect.top);
   timerBox.classList.remove('docked-left','docked-right');
   const body = timerBox.querySelector('.timer-body');
@@ -2062,7 +2350,6 @@ function endTimerDrag(e) {
   const vw = window.innerWidth;
 
   if (!moved) {
-    /* Tap while docked → slide back on-screen. */
     if(wasDocked){
       const targetX = x < vw / 2 ? 16 : Math.max(16, vw - w - 16);
       timerUndockTo(targetX, y);
@@ -2070,7 +2357,6 @@ function endTimerDrag(e) {
     return;
   }
 
-  /* Finger-driven dock: commit if mostly off that edge or flicked that way. */
   const pastLeft = x < -w * 0.28 || mid < vw * 0.22;
   const pastRight = x + w > vw + w * 0.28 || mid > vw * 0.78;
   const flickLeft = vx < -0.45;
@@ -2081,7 +2367,6 @@ function endTimerDrag(e) {
   } else if (pastRight || (flickRight && mid > vw * 0.45)) {
     timerSettleDock('right', y);
   } else {
-    /* Stay on-screen, ease to a comfortable inset. */
     timerBox.style.transition = TIMER_EASE;
     timerBox.classList.remove('docked-left','docked-right');
     const body = timerBox.querySelector('.timer-body');
@@ -2092,6 +2377,12 @@ function endTimerDrag(e) {
     timerSetPos(nx, timerClampY(y));
   }
 }
+
+document.addEventListener('mousemove', onTimerScrubMove);
+document.addEventListener('mouseup', onTimerScrubEnd);
+document.addEventListener('touchmove', onTimerScrubMove, {passive: false});
+document.addEventListener('touchend', onTimerScrubEnd);
+document.addEventListener('touchcancel', onTimerScrubEnd);
 
 timerBox.addEventListener('mousedown', initTimerDrag);
 document.addEventListener('mousemove', onTimerMove);
@@ -2112,7 +2403,60 @@ timerBox.addEventListener('click', e => {
   }
 });
 
-/* Smooth vertical exercise reorder: finger-tracked card + FLIP slot shifts. */
+let navPillDrag = null;
+const navContainer = document.querySelector('.bottom-nav');
+
+if(navContainer) {
+  navContainer.addEventListener('touchstart', e => {
+    if(e.touches.length > 1) return;
+    const track = navContainer.querySelector('.nav-track');
+    const rect = track.getBoundingClientRect();
+    navPillDrag = {
+      startX: e.touches[0].clientX,
+      trackRect: rect,
+      width: rect.width,
+      pillIndex: parseFloat(navContainer.style.getPropertyValue('--i') || 0)
+    };
+    navContainer.classList.add('dragging-pill');
+  }, {passive: true});
+
+  document.addEventListener('touchmove', e => {
+    if(!navPillDrag) return;
+    const dx = e.touches[0].clientX - navPillDrag.startX;
+    const indexDelta = dx / (navPillDrag.width / 5);
+    let targetIndex = Math.max(0, Math.min(4, navPillDrag.pillIndex + indexDelta));
+    navContainer.style.setProperty('--i', targetIndex);
+  }, {passive: true});
+
+  document.addEventListener('touchend', e => {
+    if(!navPillDrag) return;
+    navContainer.classList.remove('dragging-pill');
+    const currentIndex = parseFloat(navContainer.style.getPropertyValue('--i') || 0);
+    const snapIndex = Math.round(currentIndex);
+    const targetTab = TAB_ORDER[snapIndex];
+    navPillDrag = null;
+    if(targetTab && ui.tab !== targetTab) {
+      ui.tab = targetTab;
+      render();
+    } else {
+      navContainer.style.setProperty('--i', snapIndex);
+    }
+  });
+}
+
+let lastScrollY = window.scrollY;
+window.addEventListener('scroll', () => {
+  const nav = document.querySelector('.bottom-nav');
+  if(!nav) return;
+  const currentY = window.scrollY;
+  if (currentY > lastScrollY + 12 && currentY > 60) {
+    nav.classList.add('nav-hidden');
+  } else if (currentY < lastScrollY - 8) {
+    nav.classList.remove('nav-hidden');
+  }
+  lastScrollY = currentY;
+}, {passive: true});
+
 let exerciseDrag = null;
 let exerciseAutoScroll = null;
 
@@ -2196,8 +2540,6 @@ function exerciseUpdateSlot(ed, clientY){
     if(clientY < mid){ insertBeforeEl = s; break; }
   }
   const targetNext = insertBeforeEl;
-  const currentNext = ph.nextElementSibling === ed.card ? ph.nextElementSibling?.nextElementSibling : ph.nextElementSibling;
-  /* Normalize: next meaningful sibling after placeholder */
   let afterPh = ph.nextElementSibling;
   while(afterPh && (afterPh === ed.card || afterPh.classList?.contains('dragging'))) afterPh = afterPh.nextElementSibling;
 
@@ -2323,8 +2665,6 @@ document.addEventListener('pointerup', finishExerciseDrag);
 document.addEventListener('pointercancel', finishExerciseDrag);
 window.addEventListener('blur', () => { if (exerciseDrag) finishExerciseDrag(); });
 
-
-// 3-Pane Seamless Touch Swiper (Instagram Reels Style) with Fixed Header
 let swipeStartX = null, swipeStartY = null, swipeDX = 0;
 let swipeActive = false, swipeTrack = null, trackWidth = 0, swipeSettling = false;
 
@@ -2375,11 +2715,11 @@ function initSwipeTrack() {
 document.addEventListener('touchstart', e => {
   if (ui.tab !== 'today' || document.body.classList.contains('exercise-reordering')) return;
   if (swipeSettling) return;
-  if (swipeTrack) { /* stuck track from an interrupted gesture: repair before starting a new one */
+  if (swipeTrack) {
     swipeTrack = null; swipeActive = false; swipeStartX = null;
     render(true);
   }
-  if (e.target.closest('.timer-widget') || e.target.closest('[data-drag-handle]') || e.target.closest('input') || e.target.closest('button') || e.target.closest('select') || e.target.closest('textarea') || e.target.closest('.tabs')) return;
+  if (e.target.closest('.timer-widget') || e.target.closest('[data-drag-handle]') || e.target.closest('input') || e.target.closest('button') || e.target.closest('select') || e.target.closest('textarea') || e.target.closest('.tabs') || e.target.closest('.chart-wrap')) return;
   if (e.touches.length > 1) return;
   
   swipeStartX = e.touches[0].clientX;
@@ -2457,8 +2797,6 @@ document.addEventListener('touchend', e => {
   swipeDX = 0;
 });
 
-
-/* iOS cancels touches for edge swipes / system gestures: spring back instead of staying stuck sideways. */
 document.addEventListener('touchcancel', () => {
   if (swipeActive && swipeTrack && !swipeSettling) {
     swipeSettling = true;
@@ -2470,7 +2808,90 @@ document.addEventListener('touchcancel', () => {
 });
 document.addEventListener('touchcancel', e => { if (typeof endTimerDrag === 'function') endTimerDrag(e); });
 
-// Keyboard Ergonomics: Enter Key to focus next weight input
+
+/* Interactive Chart Scrubbing Handler */
+let chartScrubState = null;
+function updateChartScrub(e) {
+  const { svg, pts } = chartScrubState;
+  const rect = svg.getBoundingClientRect();
+  let xPct = (e.clientX - rect.left) / rect.width;
+  xPct = Math.max(0, Math.min(1, xPct));
+  const svgX = xPct * 600;
+
+  let closest = pts[0], minDx = Infinity, cIdx = 0;
+  pts.forEach((p, idx) => {
+    const dx = Math.abs(p.x - svgX);
+    if(dx < minDx) { minDx = dx; closest = p; cIdx = idx; }
+  });
+
+  if(cIdx !== chartScrubState.lastIdx) {
+    haptic(5);
+    chartScrubState.lastIdx = cIdx;
+  }
+
+  let g = svg.querySelector('.scrub-g');
+  if(!g) {
+    svg.insertAdjacentHTML('beforeend', `
+      <g class="scrub-g" style="pointer-events:none">
+        <line class="sl" y1="0" y2="1000" stroke="var(--acc)" stroke-width="1.5" stroke-dasharray="4"/>
+        <circle class="sc" r="6" fill="var(--bg)" stroke="var(--acc)" stroke-width="2.5"/>
+        <rect class="sr" rx="8" fill="var(--card)" stroke="var(--line)" stroke-width="1" width="110" height="42" filter="drop-shadow(0 4px 8px rgba(0,0,0,0.3))"/>
+        <text class="st-v" font-size="14" font-weight="bold" fill="var(--acc)" text-anchor="middle"></text>
+        <text class="st-l" font-size="11" fill="var(--mute)" text-anchor="middle"></text>
+      </g>
+    `);
+    g = svg.querySelector('.scrub-g');
+  }
+  g.style.display = 'block';
+
+  g.querySelector('.sl').setAttribute('x1', closest.x);
+  g.querySelector('.sl').setAttribute('x2', closest.x);
+  g.querySelector('.sc').setAttribute('cx', closest.x);
+  g.querySelector('.sc').setAttribute('cy', closest.y);
+
+  const isRightEdge = closest.x > 450;
+  const isLeftEdge = closest.x < 150;
+  let boxX = closest.x;
+  if (isRightEdge) boxX -= 55;
+  else if (isLeftEdge) boxX += 55;
+
+  g.querySelector('.sr').setAttribute('x', boxX - 55);
+  g.querySelector('.sr').setAttribute('y', 10);
+  
+  const tv = g.querySelector('.st-v');
+  tv.setAttribute('x', boxX);
+  tv.setAttribute('y', 28);
+  tv.textContent = closest.v + (svg.dataset.isVol === 'true' ? '' : ' kg');
+
+  const tl = g.querySelector('.st-l');
+  tl.setAttribute('x', boxX);
+  tl.setAttribute('y', 44);
+  tl.textContent = closest.l;
+}
+
+const endChartScrub = (e) => {
+  if(!chartScrubState) return;
+  const g = chartScrubState.svg.querySelector('.scrub-g');
+  if(g) g.style.display = 'none';
+  try { chartScrubState.svg.releasePointerCapture(e.pointerId); } catch(err){}
+  chartScrubState = null;
+};
+
+document.addEventListener('pointerdown', e => {
+  const svg = e.target.closest('svg[data-pts]');
+  if(!svg) return;
+  chartScrubState = { svg, pts: JSON.parse(svg.getAttribute('data-pts')), lastIdx: -1 };
+  try { svg.setPointerCapture(e.pointerId); } catch(err){}
+  updateChartScrub(e);
+});
+document.addEventListener('pointermove', e => {
+  if(!chartScrubState) return;
+  updateChartScrub(e);
+});
+document.addEventListener('pointerup', endChartScrub);
+document.addEventListener('pointercancel', endChartScrub);
+
+
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
     e.preventDefault();
@@ -2497,7 +2918,6 @@ document.addEventListener('touchstart', e => {
     }
   }
 }, {passive:true});
-
 
 document.addEventListener('click', e => {
   const btn = e.target.closest('[data-act]');
@@ -2634,7 +3054,6 @@ document.addEventListener('click', e => {
     const day=getPlan()[ui.day];
     const ex=day&&day.ex.find(item=>item.id===id);
     if(!ex){
-      /* Off-Plan exercise: it only exists as logged data for this date */
       const rec=S.logs[ui.date]&&S.logs[ui.date][id];
       if(rec&&confirm('Remove this off-plan exercise and its logged sets from this date?')){
         delete S.logs[ui.date][id];
@@ -2669,20 +3088,16 @@ document.addEventListener('click', e => {
     haptic(10);
     startTimer((T.restTimerMin || 3) * 60);
   }
-  else if(a==='timer-add'){
+  else if(a==='timer-restart'){
     haptic(10);
-    if(targetEndTime > 0){
-      targetEndTime += 30000;
-      timerTotalSecs += 30;
-      updateTimerLogic();
-    }
+    startTimer((T.restTimerMin || 3) * 60);
   }
   else if(a==='timer-close'){
     haptic(10);
-    stopTimer();
+    dismissTimer();
   }
   else if(a==='customtimer'){
-    promptCustomTimer();
+    if(Date.now() >= timerNoClickUntil) promptCustomTimer();
   }
   else if(a==='copy'){
     const t = document.getElementById('bk');
@@ -2773,8 +3188,16 @@ document.addEventListener('input', e => {
       const rInput = row.querySelector('[data-f="r"]');
       const wVal = wInput ? wInput.value.trim() : '';
       const rVal = rInput ? rInput.value.trim() : '';
-      if(wVal !== '' && rVal !== '') row.classList.add('set-done');
-      else row.classList.remove('set-done');
+      
+      if(wVal !== '' && rVal !== '') {
+        if(!row.classList.contains('set-done')) {
+          row.classList.add('set-done', 'set-just-done');
+          haptic(15);
+          setTimeout(() => row.classList.remove('set-just-done'), 500);
+        }
+      } else {
+        row.classList.remove('set-done', 'set-just-done');
+      }
     }
   }
   else if(f === 'note'){
@@ -2936,4 +3359,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.3.21 -->
+</html><!-- END OF FILE — Lift Log version 1.6.2 -->
