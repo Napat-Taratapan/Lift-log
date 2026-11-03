@@ -1,6 +1,40 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.6.3
+  Current version: 1.7.1
+
+  Version 1.7.1 change log:
+  - Custom Split editor in Settings appears only when Custom Split is the active routine.
+
+  Version 1.7.0 change log:
+  - Custom Split editor in Settings: rename/reorder/add/remove/duplicate days; edit exercises (name, sets, rep range); add/remove/reorder exercises. Operates only on the custom routine — Push-Pull-Legs is never modified.
+  - Actions to reset Custom to the default template or clone the current PPL plan into Custom (PPL itself stays intact).
+
+  Version 1.6.9 change log:
+  - Removed the always-visible "Last session" summary on exercise cards (placeholders already show prior weight/reps). Coaching tips such as "hit upper rep limit — try heavier" still appear when relevant.
+
+  Version 1.6.8 change log:
+  - In-app confirmation sheet for removing exercises (replaces window.confirm for reliability on iOS home-screen apps).
+  - Progressive long-press lift: card scales up during the hold, then settles with a stronger accent ring when the menu opens.
+  - One-time Log tip explaining long-press actions; dismissible and remembered.
+  - Context menu dismisses on scroll and when the app is backgrounded.
+  - Larger hit targets for set − / + and Rest controls; shorter remove confirmation copy.
+
+  Version 1.6.7 change log:
+  - Minimal exercise cards: Rename and Remove moved into an iOS-style long-press action menu; header keeps only the name and drag handle.
+  - Long-press slightly expands the card; the menu opens above or below based on available space, with smooth auto-scroll as a last resort so the menu stays on-screen.
+
+  Version 1.6.6 change log:
+  - Replaced the exercise "Remove" text button with a red X icon.
+  - Smooth set add/remove: new set rows slide in and removed rows fade out in place without a full page refresh.
+
+  Version 1.6.5 change log:
+  - Replaced "+ Set", "− Set", "Rest", and "Rename" text labels with minimalist line icons for a cleaner log UI.
+  - Fixed Rename: uses an inline name editor instead of window.prompt (which often does nothing in iOS home-screen / standalone web apps).
+
+  Version 1.6.4 change log:
+  - Added ability to remove sets from a workout log entry, with paired "+ Set" / "− Set" controls (fixes the previous add-only extra-set behaviour).
+  - Fixed set-count math so the first "+ Set" click always adds one visible set instead of requiring several clicks past the planned set count.
+  - Added exercise Rename: updates the name everywhere it appears (all routines and archived entries that share the same id or former name) so progress history continues under the new name. Import of older backups remains compatible because logs are keyed by exercise id.
 
   Version 1.6.3 change log:
   - Fixed bottom nav sitting too high on short, non-scrolling pages (Log rest day, Calendar) in the iOS home-screen app: body now always keeps the document slightly taller than the screen so fixed elements anchor to the full viewport.
@@ -119,6 +153,140 @@ h2.sec{font-size:17px;margin:18px 0 2px}
 .tabs button{white-space:nowrap;font-size:13px}
 .tabs button.on{background:var(--acc);border-color:var(--acc);color:var(--onacc);font-weight:700}
 .btn:active{transform:scale(0.96)}
+.btn.icon-btn{width:36px;height:36px;padding:0;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.btn.icon-btn .svg-icon{width:18px;height:18px}
+.ex-name-wrap{min-width:0}
+.ex-name-label{overflow-wrap:anywhere}
+h3 .ex-name-input{margin:0;border:1px solid var(--acc);box-shadow:0 0 0 2px var(--glass-glow)}
+
+/* Exercise long-press context menu + progressive lift */
+.exercise-card{
+  transition: transform 0.28s cubic-bezier(0.22,1,0.36,1), box-shadow 0.28s ease, border-color 0.2s ease, opacity 0.16s ease;
+}
+.exercise-card.ctx-pressing{
+  transform: scale(1.015);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+  border-color: color-mix(in srgb, var(--acc) 55%, var(--line));
+  z-index: 30;
+  position: relative;
+}
+.exercise-card.ctx-pressed{
+  transform: scale(1.03);
+  box-shadow: 0 16px 40px rgba(0,0,0,0.45), 0 0 0 2px var(--acc), 0 0 24px var(--glass-glow);
+  border-color: var(--acc);
+  z-index: 40;
+  position: relative;
+}
+.ex-ctx-backdrop{
+  position: fixed; inset: 0; z-index: 120;
+  background: rgba(0,0,0,0.28);
+  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+  animation: fadeIn 0.18s ease;
+}
+.ex-ctx-menu{
+  position: fixed; z-index: 130;
+  min-width: 200px; max-width: min(280px, calc(100vw - 24px));
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 48px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06);
+  transform-origin: top center;
+  animation: exCtxIn 0.22s cubic-bezier(0.22,1,0.36,1) both;
+}
+.ex-ctx-menu.place-above{ transform-origin: bottom center; }
+@keyframes exCtxIn{
+  from{ opacity:0; transform: scale(0.92) translateY(4px); }
+  to{ opacity:1; transform: scale(1) translateY(0); }
+}
+.ex-ctx-menu.place-above{ animation-name: exCtxInAbove; }
+@keyframes exCtxInAbove{
+  from{ opacity:0; transform: scale(0.92) translateY(-4px); }
+  to{ opacity:1; transform: scale(1) translateY(0); }
+}
+.ex-ctx-menu button{
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  border: 0; background: transparent; color: var(--ink);
+  font: inherit; font-size: 15px; font-weight: 600;
+  padding: 12px 12px; border-radius: 10px; cursor: pointer; text-align: left;
+}
+.ex-ctx-menu button:active{ background: var(--bg); }
+.ex-ctx-menu button.danger{ color: var(--down); }
+.ex-ctx-menu button .svg-icon{ width: 18px; height: 18px; flex: none; }
+.glass-mode .ex-ctx-menu{
+  background: linear-gradient(135deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 100%) !important;
+  backdrop-filter: blur(48px) saturate(190%);
+  -webkit-backdrop-filter: blur(48px) saturate(190%);
+  border: 1px solid rgba(255,255,255,0.14) !important;
+}
+
+/* In-app confirm sheet */
+.app-confirm-overlay{
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.72);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; animation: fadeIn 0.18s ease;
+}
+.app-confirm-card{
+  width: min(100%, 340px);
+  background: var(--card); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 18px;
+  padding: 20px; box-shadow: 0 18px 60px rgba(0,0,0,0.5);
+  animation: popIn 0.28s cubic-bezier(0.18,0.89,0.32,1.28);
+}
+.app-confirm-card h2{ margin: 0 0 8px; font-size: 18px; }
+.app-confirm-card p{ margin: 0 0 16px; font-size: 14px; color: var(--mute); line-height: 1.45; }
+.app-confirm-actions{ display: flex; gap: 8px; }
+.app-confirm-actions .btn{ flex: 1; padding: 12px; font-weight: 700; }
+.app-confirm-actions .btn.danger-fill{
+  background: var(--down); border-color: var(--down); color: #fff;
+}
+
+/* Long-press tip banner */
+.ex-tip{
+  display: flex; align-items: flex-start; gap: 10px;
+  background: var(--accbg); color: var(--acc);
+  border: 1px solid color-mix(in srgb, var(--acc) 35%, var(--line));
+  border-radius: 12px; padding: 10px 12px; margin-bottom: 10px;
+  font-size: 13px; line-height: 1.4;
+}
+.ex-tip b{ display: block; margin-bottom: 2px; color: var(--acc); }
+.ex-tip .ex-tip-dismiss{
+  flex: none; width: 28px; height: 28px; border: 0; background: transparent;
+  color: var(--acc); font-size: 18px; line-height: 1; cursor: pointer; border-radius: 8px;
+}
+.ex-tip .ex-tip-dismiss:active{ background: color-mix(in srgb, var(--acc) 15%, transparent); }
+.routine-day{
+  border:1px solid var(--line); border-radius:12px; margin-top:8px; overflow:hidden; background:var(--bg);
+}
+.routine-day-head{
+  display:flex; align-items:center; gap:6px; padding:8px; flex-wrap:wrap;
+}
+.routine-day-head input.day-name{
+  flex:1; min-width:120px; font-weight:700; font-size:14px; padding:6px 8px;
+}
+.routine-day-body{ padding:0 8px 10px; border-top:1px solid var(--line); }
+.routine-ex-row{
+  display:grid; grid-template-columns:1fr 52px 72px auto; gap:6px; align-items:center;
+  margin-top:8px;
+}
+.routine-ex-row input{ font-size:13px; padding:6px; }
+.routine-tools{ display:flex; gap:4px; flex-wrap:wrap; }
+.routine-tools .btn.icon-btn{ width:32px; height:32px; min-width:32px; min-height:32px; }
+
+
+/* Larger primary set/timer hit targets on the log card */
+.exercise-card .btn.icon-btn{
+  width: 40px; height: 40px; min-width: 40px; min-height: 40px;
+}
+
+@media (prefers-reduced-motion: reduce){
+  .exercise-card.ctx-pressed, .exercise-card.ctx-pressing{ transform: none; }
+  .ex-ctx-menu, .ex-ctx-menu.place-above{ animation: none; }
+  .app-confirm-card{ animation: none; }
+}
+
 
 input,select,textarea{
   font:inherit;font-size:16px;color:var(--ink);background:var(--bg);border:1px solid var(--line);
@@ -185,13 +353,14 @@ input[type=color]{width:56px;height:36px;padding:2px;cursor:pointer}
   transition:transform 0.22s cubic-bezier(0.22, 1, 0.36, 1) !important;
   will-change:transform;
 }
-.exercise-card{touch-action:pan-y;transition:opacity .16s ease,border-color .16s ease,box-shadow .16s ease}
+.exercise-card{touch-action:pan-y;transition:transform 0.28s cubic-bezier(0.22,1,0.36,1),opacity .16s ease,border-color .16s ease,box-shadow .16s ease;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.exercise-card input,.exercise-card textarea{-webkit-user-select:text;user-select:text}
 .drag-handle:active{cursor:grabbing}
 body.exercise-reordering{user-select:none;-webkit-user-select:none;cursor:grabbing;overscroll-behavior:contain;touch-action:none}
 .meta{color:var(--mute);font-size:13px;margin:2px 0 6px}
 .last{font-size:13px;color:var(--mute);background:var(--bg);border-radius:8px;padding:6px 8px;margin-bottom:8px}
 .up{display:block;margin-top:4px;color:var(--ok);font-weight:600}
-.row{display:grid;grid-template-columns:44px 1fr 1fr;gap:8px;align-items:center;margin-bottom:6px;transition:opacity 0.2s ease}
+.row{display:grid;grid-template-columns:44px 1fr 1fr;gap:8px;align-items:center;margin-bottom:6px;transition:opacity 0.2s ease;transform-origin:top center}
 .row span{color:var(--mute);font-size:13px;transition:color 0.2s ease}
 .row input{width:100%;text-align:center}
 .row.set-done{opacity:0.6}
@@ -204,6 +373,27 @@ body.exercise-reordering{user-select:none;-webkit-user-select:none;cursor:grabbi
   100% { transform: scale(1); background-color: transparent; }
 }
 .row.set-just-done { animation: setCompletePop 0.45s ease-out; }
+
+/* Seamless set add / remove */
+@keyframes setRowIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes setRowOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-6px); }
+}
+.row.set-row-enter { animation: setRowIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.row.set-row-exit {
+  animation: setRowOut 0.22s ease forwards;
+  pointer-events: none;
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .row.set-row-enter, .row.set-row-exit { animation: none; }
+}
+.btn.icon-btn.danger { color: var(--down); border-color: color-mix(in srgb, var(--down) 45%, var(--line)); }
+.btn.icon-btn.danger:active { background: color-mix(in srgb, var(--down) 12%, transparent); }
 
 .note{width:100%;margin-top:4px}
 .small{font-size:13px;padding:6px 10px}
@@ -523,6 +713,91 @@ const CUSTOM_ROUTINE=[
 
 function buildPlan(arr){return arr.map((d,i)=>({name:d[0],ex:d[1].map((e,j)=>({id:'d'+i+'_'+j+'_'+Math.random().toString(36).substr(2,4),name:e[0],sets:e[1],range:e[2]}))}))}
 
+/** Custom routine only — never mutates PPL. */
+function getCustomPlan(){
+  if(!S.routines) S.routines = {};
+  if(!Array.isArray(S.routines.custom)) S.routines.custom = buildPlan(CUSTOM_ROUTINE);
+  return S.routines.custom;
+}
+function newExerciseId(){
+  return 'custom_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7);
+}
+function newCustomExercise(name, sets, range){
+  return {
+    id: newExerciseId(),
+    name: String(name||'Exercise').trim() || 'Exercise',
+    sets: Math.max(1, Math.min(20, Math.round(Number(sets)||3))),
+    range: String(range||'8-12').trim() || '8-12'
+  };
+}
+function deepClonePlan(plan){
+  return (plan||[]).map(day=>({
+    name: day.name,
+    ex: (day.ex||[]).map(e=>({ id: e.id, name: e.name, sets: e.sets, range: e.range }))
+  }));
+}
+function clonePlanWithFreshIds(plan){
+  return (plan||[]).map((day,di)=>({
+    name: day.name,
+    ex: (day.ex||[]).map((e,ei)=>({
+      id: 'd'+di+'_'+ei+'_'+Math.random().toString(36).substr(2,4),
+      name: e.name,
+      sets: e.sets,
+      range: e.range
+    }))
+  }));
+}
+function renderCustomRoutineEditor(){
+  const plan = getCustomPlan();
+  let h = '<div class="card" id="custom-routine-editor">';
+  h += '<h3>Edit Custom Split</h3>';
+  h += '<div class="meta" style="margin-top:6px">Arrange days and exercises for the Custom Split. Push–Pull–Legs is never changed.</div>';
+  h += '<div class="routine-tools" style="margin-top:10px">';
+  h += '<button type="button" class="btn small acc" data-act="cust-add-day">+ Day</button>';
+  h += '<button type="button" class="btn small" data-act="cust-clone-ppl">Clone from PPL</button>';
+  h += '<button type="button" class="btn small" data-act="cust-reset">Reset template</button>';
+  h += '</div>';
+
+  if(!plan.length){
+    h += '<div class="meta" style="margin-top:12px">No days yet. Add a day to start building the split.</div>';
+  }
+
+  plan.forEach((day, di)=>{
+    const open = ui.custEditDay === di;
+    const nEx = (day.ex||[]).length;
+    h += '<div class="routine-day" data-cust-day="'+di+'">';
+    h += '<div class="routine-day-head">';
+    h += '<input class="day-name" data-cust="dayname" data-di="'+di+'" value="'+esc(day.name)+'" aria-label="Day name">';
+    h += '<button type="button" class="btn small icon-btn" data-act="cust-move-day" data-di="'+di+'" data-v="-1" title="Move up" aria-label="Move day up" '+(di===0?'disabled style="opacity:.35"':'')+'>↑</button>';
+    h += '<button type="button" class="btn small icon-btn" data-act="cust-move-day" data-di="'+di+'" data-v="1" title="Move down" aria-label="Move day down" '+(di===plan.length-1?'disabled style="opacity:.35"':'')+'>↓</button>';
+    h += '<button type="button" class="btn small" data-act="cust-toggle-day" data-di="'+di+'">'+(open?'Hide':'Edit')+'</button>';
+    h += '<button type="button" class="btn small" data-act="cust-dup-day" data-di="'+di+'" title="Duplicate day">Copy</button>';
+    h += '<button type="button" class="btn small icon-btn danger" data-act="cust-del-day" data-di="'+di+'" title="Delete day" aria-label="Delete day"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>';
+    h += '</div>';
+    h += '<div class="meta" style="padding:0 8px 8px">'+nEx+' exercise'+(nEx===1?'':'s')+(nEx===0?' · rest day':'')+'</div>';
+    if(open){
+      h += '<div class="routine-day-body">';
+      (day.ex||[]).forEach((ex, ei)=>{
+        h += '<div class="routine-ex-row">';
+        h += '<input data-cust="exname" data-di="'+di+'" data-ei="'+ei+'" value="'+esc(ex.name)+'" placeholder="Exercise" aria-label="Exercise name">';
+        h += '<input data-cust="sets" data-di="'+di+'" data-ei="'+ei+'" type="number" min="1" max="20" value="'+esc(ex.sets)+'" title="Sets" aria-label="Sets">';
+        h += '<input data-cust="range" data-di="'+di+'" data-ei="'+ei+'" value="'+esc(ex.range)+'" placeholder="8-12" title="Rep range" aria-label="Rep range">';
+        h += '<span class="routine-tools">';
+        h += '<button type="button" class="btn small icon-btn" data-act="cust-move-ex" data-di="'+di+'" data-ei="'+ei+'" data-v="-1" title="Move up" '+(ei===0?'disabled style="opacity:.35"':'')+'>↑</button>';
+        h += '<button type="button" class="btn small icon-btn" data-act="cust-move-ex" data-di="'+di+'" data-ei="'+ei+'" data-v="1" title="Move down" '+(ei===(day.ex.length-1)?'disabled style="opacity:.35"':'')+'>↓</button>';
+        h += '<button type="button" class="btn small icon-btn danger" data-act="cust-del-ex" data-di="'+di+'" data-ei="'+ei+'" title="Remove exercise" aria-label="Remove exercise"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>';
+        h += '</span></div>';
+      });
+      h += '<button type="button" class="btn small acc" style="margin-top:10px" data-act="cust-add-ex" data-di="'+di+'">+ Exercise</button>';
+      h += '<div class="meta" style="margin-top:8px">Tip: include a weekday in the day name (e.g. “Monday — Upper”) so Calendar maps it correctly. Otherwise days follow Mon→first, Tue→second, …</div>';
+      h += '</div>';
+    }
+    h += '</div>';
+  });
+  h += '</div>';
+  return h;
+}
+
 let storageOK=true, loadProblem=null;
 
 function sanitizeImportedState(o){
@@ -763,7 +1038,7 @@ const dayIdx=d=>{
 
 const dayFor=d=>dayIdx(d);
 const now=new Date();
-const ui={tab:'home',date:iso(now),day:0,extra:{},homeMetric:'1rm',homeGraphType:T.homeGraphType||'line',progGraphType:T.progGraphType||'line',cm:{y:now.getFullYear(),m:now.getMonth()},overallShowAll:false,progShowAll:false,progTableAll:false};
+const ui={tab:'home',date:iso(now),day:0,extra:{},homeMetric:'1rm',homeGraphType:T.homeGraphType||'line',progGraphType:T.progGraphType||'line',cm:{y:now.getFullYear(),m:now.getMonth()},overallShowAll:false,progShowAll:false,progTableAll:false,custEditDay:null};
 let lastRenderedTab=null;
 let lastRenderedDate=null;
 let lastRenderedDay=null;
@@ -786,6 +1061,201 @@ function relatedIds(id){
   Object.entries(S.archivedExercises||{}).forEach(([i,e])=>add(i,e&&e.name));
   const k=names[id];
   return k?byName[k]:[id];
+}
+/** Session key for per-date set-count overrides (add/remove set on the log screen). */
+function setCountKey(exId, dateStr){
+  return String(dateStr || ui.date || '') + '|' + String(exId || '');
+}
+/** Visible set count for an exercise on the log screen.
+ *  ui.extra[date|id], when set, is an explicit session set count (absolute).
+ *  Otherwise the count is max(planned sets, already-logged set slots). */
+function visibleSetCount(ex, rec, dateStr){
+  const planned = Math.max(1, Number(ex && ex.sets) || 1);
+  const logged = (rec && Array.isArray(rec.sets)) ? rec.sets.length : 0;
+  const key = setCountKey(ex && ex.id, dateStr);
+  const forced = ui.extra && ui.extra[key];
+  if(forced !== undefined && forced !== null && forced !== ''){
+    const n = Math.round(Number(forced));
+    if(Number.isFinite(n)) return Math.max(1, n);
+  }
+  return Math.max(1, planned, logged);
+}
+
+function resolveLogExercise(id){
+  const plan = getPlan();
+  const day = plan[ui.day];
+  let ex = day && day.ex && day.ex.find(item => item.id === id);
+  if(!ex){
+    const all = exList();
+    ex = all.find(item => item.id === id) || {id, sets:1, name:'', range:'8-12'};
+  }
+  return ex;
+}
+function setRowPlaceholders(exId){
+  const lbr = lastBeforeRec(exId, ui.date);
+  const lr = lbr && lbr.rec;
+  const last = lr && Array.isArray(lr.sets) && lr.sets.length ? (lr.sets[lr.sets.length-1] || null) : null;
+  return {
+    w: last && last.w !== '' && last.w != null ? String(last.w) : 'kg',
+    r: last && last.r !== '' && last.r != null ? String(last.r) : 'reps'
+  };
+}
+function buildSetRowElement(exId, index, values){
+  const s = values || {w:'', r:''};
+  const ph = setRowPlaceholders(exId);
+  const isDone = (s.w !== '' && s.r !== '') ? ' set-done' : '';
+  const row = document.createElement('div');
+  row.className = 'row' + isDone;
+  row.dataset.setRow = String(index);
+  row.innerHTML =
+    '<span>Set '+(index+1)+'</span>'+
+    '<input type="number" inputmode="decimal" min="0" step="any" data-id="'+esc(exId)+'" data-i="'+index+'" data-f="w" placeholder="'+esc(ph.w)+'" value="'+esc(s.w)+'">'+
+    '<input type="number" inputmode="numeric" min="0" step="1" data-id="'+esc(exId)+'" data-i="'+index+'" data-f="r" placeholder="'+esc(ph.r)+'" value="'+esc(s.r)+'">';
+  return row;
+}
+function renumberSetRows(card){
+  if(!card) return;
+  card.querySelectorAll('.row[data-set-row]').forEach((row, i)=>{
+    row.dataset.setRow = String(i);
+    const label = row.querySelector('span');
+    if(label) label.textContent = 'Set '+(i+1);
+    row.querySelectorAll('input[data-i]').forEach(inp=>{
+      inp.setAttribute('data-i', String(i));
+    });
+  });
+}
+function updateRemoveSetButton(card, count){
+  if(!card) return;
+  const minusBtn = card.querySelector('[data-act="removeset"]');
+  if(!minusBtn) return;
+  if(count <= 1){
+    minusBtn.disabled = true;
+    minusBtn.setAttribute('aria-disabled', 'true');
+    minusBtn.style.opacity = '.4';
+  } else {
+    minusBtn.disabled = false;
+    minusBtn.removeAttribute('aria-disabled');
+    minusBtn.style.opacity = '';
+  }
+}
+function animateAddSetRow(exId){
+  const card = [...document.querySelectorAll('[data-ex-card]')].find(c=>c.getAttribute('data-ex-card')===exId);
+  if(!card){ render(true); return; }
+  const rows = card.querySelectorAll('.row[data-set-row]');
+  const index = rows.length;
+  const row = buildSetRowElement(exId, index, {w:'', r:''});
+  const controls = card.querySelector('[data-act="addset"]');
+  const insertBefore = controls ? controls.closest('div') : null;
+  if(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches){
+    if(insertBefore) card.insertBefore(row, insertBefore);
+    else card.appendChild(row);
+    updateRemoveSetButton(card, index + 1);
+    const wInput = row.querySelector('input[data-f="w"]');
+    if(wInput) setTimeout(()=>wInput.focus(), 40);
+    return;
+  }
+  row.style.opacity = '0';
+  row.style.transform = 'translateY(-8px)';
+  row.style.height = '0px';
+  row.style.marginBottom = '0px';
+  row.style.overflow = 'hidden';
+  row.style.boxSizing = 'border-box';
+  if(insertBefore) card.insertBefore(row, insertBefore);
+  else card.appendChild(row);
+  // Measure natural height
+  row.style.height = 'auto';
+  const targetH = row.getBoundingClientRect().height;
+  row.style.height = '0px';
+  void row.offsetHeight;
+  row.style.transition = 'opacity 0.26s ease, transform 0.26s cubic-bezier(0.22,1,0.36,1), height 0.26s cubic-bezier(0.22,1,0.36,1), margin 0.26s ease';
+  row.style.opacity = '1';
+  row.style.transform = 'translateY(0)';
+  row.style.height = targetH + 'px';
+  row.style.marginBottom = '6px';
+  updateRemoveSetButton(card, index + 1);
+  const clear = (ev)=>{
+    if(ev && ev.propertyName && ev.propertyName !== 'height' && ev.propertyName !== 'opacity') return;
+    row.style.height = '';
+    row.style.overflow = '';
+    row.style.transition = '';
+    row.style.transform = '';
+    row.style.opacity = '';
+    row.removeEventListener('transitionend', clear);
+  };
+  row.addEventListener('transitionend', clear);
+  setTimeout(clear, 320);
+  const wInput = row.querySelector('input[data-f="w"]');
+  if(wInput) setTimeout(()=>wInput.focus(), 80);
+}
+function animateRemoveSetRow(exId, nextN){
+  const card = [...document.querySelectorAll('[data-ex-card]')].find(c=>c.getAttribute('data-ex-card')===exId);
+  if(!card){ render(true); return; }
+  const rows = [...card.querySelectorAll('.row[data-set-row]')];
+  if(rows.length <= 1) return;
+  const last = rows[rows.length - 1];
+  const finish = ()=>{
+    last.remove();
+    renumberSetRows(card);
+    updateRemoveSetButton(card, nextN);
+  };
+  if(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches){
+    finish();
+    return;
+  }
+  const h = last.getBoundingClientRect().height;
+  last.style.height = h + 'px';
+  last.style.overflow = 'hidden';
+  last.style.boxSizing = 'border-box';
+  // Force layout then collapse
+  void last.offsetHeight;
+  last.classList.add('set-row-exit');
+  last.style.transition = 'opacity 0.2s ease, transform 0.2s ease, height 0.22s ease, margin 0.22s ease, padding 0.22s ease';
+  last.style.opacity = '0';
+  last.style.transform = 'translateY(-6px)';
+  last.style.height = '0px';
+  last.style.marginBottom = '0px';
+  last.style.paddingTop = '0px';
+  last.style.paddingBottom = '0px';
+  let done = false;
+  const onEnd = ()=>{
+    if(done) return;
+    done = true;
+    last.removeEventListener('transitionend', onEnd);
+    finish();
+  };
+  last.addEventListener('transitionend', onEnd);
+  setTimeout(onEnd, 300);
+}
+
+/** Rename an exercise by id; also renames every routine/archived entry that currently shares the same display name so history (grouped by name) stays continuous under the new label. Logs remain keyed by id, so older backups keep working. */
+function renameExerciseEverywhere(exId, newName){
+  const clean = String(newName ?? '').trim();
+  if(!clean) return {ok:false, reason:'empty'};
+  let oldName = null;
+  const findName = ()=>{
+    Object.values(S.routines||{}).forEach(plan=>(plan||[]).forEach(d=>(d.ex||[]).forEach(e=>{ if(e.id===exId && oldName==null) oldName=e.name; })));
+    if(oldName==null && S.archivedExercises && S.archivedExercises[exId]) oldName = S.archivedExercises[exId].name;
+  };
+  findName();
+  if(oldName==null){
+    // Off-plan log-only exercise: create/update archived name so Progress can label it.
+    if(!S.archivedExercises) S.archivedExercises = {};
+    S.archivedExercises[exId] = Object.assign({}, S.archivedExercises[exId]||{}, {name:clean, sets:(S.archivedExercises[exId]&&S.archivedExercises[exId].sets)||3, range:(S.archivedExercises[exId]&&S.archivedExercises[exId].range)||'8-12'});
+    return {ok:true, from:null, to:clean};
+  }
+  const oldNorm = normName(oldName);
+  if(oldNorm === normName(clean)) return {ok:true, from:oldName, to:clean, unchanged:true};
+  Object.values(S.routines||{}).forEach(plan=>(plan||[]).forEach(d=>(d.ex||[]).forEach(e=>{
+    if(e.id===exId || normName(e.name)===oldNorm) e.name = clean;
+  })));
+  if(S.archivedExercises){
+    Object.keys(S.archivedExercises).forEach(aid=>{
+      const a = S.archivedExercises[aid];
+      if(!a) return;
+      if(aid===exId || normName(a.name)===oldNorm) a.name = clean;
+    });
+  }
+  return {ok:true, from:oldName, to:clean};
 }
 function lastBeforeRec(id,date){
   if(!isValidISODate(date)) return null;
@@ -1377,6 +1847,7 @@ function triggerCounterAnimations(){
 }
 
 function render(skipAnim = false){
+  closeExerciseContextMenu();
   const t=ui.tab;
   const tabChanged=lastRenderedTab!==t;
   const wasLogTab=lastRenderedTab==='today'||lastRenderedTab==='log';
@@ -1763,39 +2234,56 @@ function renderLogExercisesForDate(dStr){
   if(!exercisesToRender.length) return `<div class="empty"><svg class="svg-icon" style="width:48px;height:48px;color:var(--mute);margin-bottom:12px" viewBox="0 0 24 24"><path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><line x1="6" y1="2" x2="6" y2="4"/><line x1="10" y1="2" x2="10" y2="4"/><line x1="14" y1="2" x2="14" y2="4"/></svg><div>Rest day scheduled! Take time to recover.</div></div>`;
   
   let h = '';
-  const timerIcon = `<svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 6 12 12 16 14"/></svg>`;
+  const timerIcon = `<svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="12 6 12 12 16 14"/></svg>`;
+  const iconPlus = `<svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>`;
+  const iconMinus = `<svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg>`;
+  const iconPencil = `<svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
+  const iconX = `<svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`;
+
 
   exercisesToRender.forEach((e, idx)=>{
     const isExtra = idx >= d.ex.length;
     const rec=(S.logs[dStr]||{})[e.id]||{sets:[],note:''};
     const lbr=lastBeforeRec(e.id,dStr),lb=lbr?lbr.date:null,lr=lbr?lbr.rec:null;
-    const n=Math.max(e.sets,rec.sets.length,ui.extra[e.id]||0);
+    const n=visibleSetCount(e, rec, dStr);
     const hi=parseInt((String(e.range).split('-')[1]||e.range),10);
-    let up='';
-    if(lr&&hi){const ss=lr.sets.filter(s=>num(s.w)!==null);if(ss.length>=e.sets&&ss.every(s=>(num(s.r)||0)>=hi))up='<span class="up">↑ Hit upper rep limit last time. Try heavier weight!</span>'}
+    let tip='';
+    if(lr&&hi){
+      const ss=lr.sets.filter(s=>num(s.w)!==null);
+      if(ss.length>=e.sets&&ss.every(s=>(num(s.r)||0)>=hi))
+        tip='↑ Hit upper rep limit last time. Try heavier weight!';
+    }
     
     const extraTag = isExtra ? '<span style="font-size:10px;background:var(--accbg);color:var(--acc);padding:2px 6px;border-radius:4px;margin-left:8px;vertical-align:middle">Off-Plan</span>' : '';
     
     h+=`<div class="card exercise-card" data-ex-card="${esc(e.id)}">
       <h3>
-        <span>${esc(e.name)}${extraTag}</span>
-        <span style="display:flex;align-items:center;gap:6px"><button type="button" class="btn small" data-act="removeexercise" data-id="${esc(e.id)}" aria-label="Remove ${esc(e.name)}" title="Remove exercise">Remove</button><button type="button" class="drag-handle" data-drag-handle="${esc(e.id)}" aria-label="Drag to reorder exercise" title="Drag to reorder">⠿</button></span>
+        <span class="ex-name-wrap" style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">
+          <span class="ex-name-label" data-ex-name="${esc(e.id)}">${esc(e.name)}</span>
+          <input class="ex-name-input" data-rename-id="${esc(e.id)}" type="text" maxlength="80" value="${esc(e.name)}" style="display:none;flex:1;min-width:0;font:inherit;font-size:16px;font-weight:700;padding:4px 8px" aria-label="Exercise name">
+          ${extraTag}
+        </span>
+        <span style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+          <button type="button" class="drag-handle" data-drag-handle="${esc(e.id)}" aria-label="Drag to reorder exercise" title="Drag to reorder">⠿</button>
+        </span>
       </h3>
       <div class="meta">${e.sets} sets × ${esc(e.range)} reps</div>`;
-    if(lr)h+=`<div class="last">Last (${fmt(lb)}): ${esc(setsTxt(lr))}${up}</div>`;
+    if(tip) h+=`<div class="last"><span class="up">${esc(tip)}</span></div>`;
     
     for(let i=0;i<n;i++){
       const s=rec.sets[i]||{w:'',r:''},ls=lr&&(lr.sets[i]||lr.sets[lr.sets.length-1]);
       const isDone = (s.w!=='' && s.r!=='') ? ' set-done' : '';
-      h+=`<div class="row${isDone}">
+      h+=`<div class="row${isDone}" data-set-row="${i}">
         <span>Set ${i+1}</span>
         <input type="number" inputmode="decimal" min="0" step="any" data-id="${esc(e.id)}" data-i="${i}" data-f="w" placeholder="${ls&&ls.w?esc(ls.w):'kg'}" value="${esc(s.w)}">
         <input type="number" inputmode="numeric" min="0" step="1" data-id="${esc(e.id)}" data-i="${i}" data-f="r" placeholder="${ls&&ls.r?esc(ls.r):'reps'}" value="${esc(s.r)}">
       </div>`;
     }
-    h+=`<div style="display:flex;gap:8px;margin-top:6px">
-      <button class="btn small" data-act="addset" data-id="${esc(e.id)}">+ set</button>
-      <button class="btn small acc" data-act="starttimer">${timerIcon} Rest</button>
+    const canRemoveSet = n > 1;
+    h+=`<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center">
+      <button class="btn small icon-btn" data-act="removeset" data-id="${esc(e.id)}" ${canRemoveSet?'':'disabled aria-disabled="true" style="opacity:.4"'} title="Remove last set" aria-label="Remove last set">${iconMinus}</button>
+      <button class="btn small icon-btn" data-act="addset" data-id="${esc(e.id)}" title="Add a set" aria-label="Add a set">${iconPlus}</button>
+      <button class="btn small acc icon-btn" data-act="starttimer" title="Rest timer" aria-label="Start rest timer">${timerIcon}</button>
     </div>
     <input class="note" data-id="${esc(e.id)}" data-f="note" placeholder="Notes" value="${esc(rec.note)}">
     </div>`;
@@ -1807,6 +2295,7 @@ function vLog(){
   ui.day = dayFor(ui.date);
   return `
     <div id="log-header-container">${renderLogHeader(ui.date, ui.day)}</div>
+    ${renderExLongpressTipHtml()}
     <div id="log-content-container">${renderLogExercisesForDate(ui.date)}</div>
   `;
 }
@@ -1955,7 +2444,10 @@ function vSet(){
       <button class="btn ${S.activeRoutine==='ppl'?'acc':''}" data-act="setroutine" data-v="ppl" style="flex:1">Push-Pull-Legs</button>
       <button class="btn ${S.activeRoutine==='custom'?'acc':''}" data-act="setroutine" data-v="custom" style="flex:1">Custom Split</button>
     </div>
+    <div class="meta" style="margin-top:8px">Push–Pull–Legs stays as your preset. Select Custom Split to edit that plan.</div>
   </div>`;
+
+  if(S.activeRoutine==='custom') h += renderCustomRoutineEditor();
 
   h+=`<div class="card">
     <h3>Timer & Alarm</h3>
@@ -2021,7 +2513,7 @@ function vSet(){
     <div id="bkmsg" class="meta" style="margin-top:6px"></div>
   </div>`;
 
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.6.3</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.7.1</div></div>`;
 
   return h;
 }
@@ -2901,6 +3393,18 @@ document.addEventListener('pointercancel', endChartScrub);
 
 
 document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.classList && e.target.classList.contains('ex-name-input')) {
+    e.preventDefault();
+    e.target.blur();
+    return;
+  }
+  if (e.key === 'Escape' && e.target.classList && e.target.classList.contains('ex-name-input')) {
+    e.preventDefault();
+    const card = e.target.closest('[data-ex-card]');
+    const label = card && card.querySelector('.ex-name-label');
+    if(label){ e.target.value = label.textContent || ''; e.target.style.display='none'; label.style.display=''; }
+    return;
+  }
   if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
     e.preventDefault();
     if (e.target.dataset.f === 'r') {
@@ -2927,6 +3431,415 @@ document.addEventListener('touchstart', e => {
   }
 }, {passive:true});
 
+
+function commitRenameFromInput(input){
+  if(!input || !input.getAttribute) return;
+  const id = input.getAttribute('data-rename-id');
+  if(!id) return;
+  const card = input.closest('[data-ex-card]');
+  const label = card && card.querySelector('.ex-name-label');
+  const clean = String(input.value || '').trim();
+  const previous = label ? String(label.textContent || '').trim() : '';
+  const finishUi = (name)=>{
+    if(label){ label.textContent = name; label.style.display = ''; }
+    input.style.display = 'none';
+    input.value = name;
+  };
+  if(!clean){
+    alert('Please enter an exercise name.');
+    input.focus();
+    return;
+  }
+  if(normName(clean) === normName(previous)){
+    finishUi(previous);
+    return;
+  }
+  const plan = getPlan();
+  const day = plan[ui.day];
+  if(day && day.ex && day.ex.some(item => item.id !== id && normName(item.name) === normName(clean))){
+    alert('That name is already used by another exercise on this workout day.');
+    input.focus();
+    return;
+  }
+  const result = renameExerciseEverywhere(id, clean);
+  if(!result.ok){
+    alert('Could not rename the exercise.');
+    input.focus();
+    return;
+  }
+  invalidateDerived();
+  saveState(0);
+  // Update label in place; full re-render keeps progress/related lists consistent
+  render(true);
+}
+
+document.addEventListener('focusout', e => {
+  if(e.target && e.target.classList && e.target.classList.contains('ex-name-input')){
+    // Defer so a click on another control can run first if needed
+    const input = e.target;
+    setTimeout(()=> {
+      if(document.activeElement === input) return;
+      if(input.style.display === 'none') return;
+      commitRenameFromInput(input);
+    }, 0);
+  }
+});
+
+
+/* —— Exercise long-press context menu —— */
+let exCtx = null; // { card, id, timer, pressRaf, startX, startY, opened, ignoreScrollUntil }
+const EX_TIP_KEY = 'liftlog_ex_longpress_tip_v1';
+
+function closeExerciseContextMenu(){
+  document.querySelectorAll('.exercise-card.ctx-pressed, .exercise-card.ctx-pressing').forEach(c=>{
+    c.classList.remove('ctx-pressed', 'ctx-pressing');
+    c.style.transform = '';
+  });
+  const menu = document.getElementById('ex-ctx-menu');
+  const bd = document.getElementById('ex-ctx-backdrop');
+  if(menu) menu.remove();
+  if(bd) bd.remove();
+  if(exCtx){
+    if(exCtx.timer) clearTimeout(exCtx.timer);
+    if(exCtx.pressRaf) cancelAnimationFrame(exCtx.pressRaf);
+  }
+  exCtx = null;
+}
+
+function showAppConfirm({ title, message, confirmLabel, danger, onConfirm }){
+  // Remove any existing sheet
+  const prev = document.getElementById('app-confirm-root');
+  if(prev) prev.remove();
+
+  const root = document.createElement('div');
+  root.id = 'app-confirm-root';
+  root.className = 'app-confirm-overlay';
+  root.setAttribute('role', 'dialog');
+  root.setAttribute('aria-modal', 'true');
+  root.innerHTML =
+    '<div class="app-confirm-card">'+
+      '<h2>'+esc(title||'Confirm')+'</h2>'+
+      '<p>'+esc(message||'')+'</p>'+
+      '<div class="app-confirm-actions">'+
+        '<button type="button" class="btn" data-ac="cancel">Cancel</button>'+
+        '<button type="button" class="btn '+(danger?'danger-fill':'acc')+'" data-ac="ok">'+(esc(confirmLabel||'Confirm'))+'</button>'+
+      '</div>'+
+    '</div>';
+
+  const finish = (ok)=>{
+    root.remove();
+    document.removeEventListener('keydown', onKey);
+    if(ok && typeof onConfirm === 'function') onConfirm();
+  };
+  const onKey = (e)=>{
+    if(e.key === 'Escape'){ e.preventDefault(); finish(false); }
+    if(e.key === 'Enter'){ e.preventDefault(); finish(true); }
+  };
+  root.addEventListener('click', e=>{
+    if(e.target === root) finish(false);
+    const b = e.target.closest('[data-ac]');
+    if(!b) return;
+    finish(b.getAttribute('data-ac') === 'ok');
+  });
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(root);
+  const okBtn = root.querySelector('[data-ac="ok"]');
+  if(okBtn) setTimeout(()=>okBtn.focus(), 30);
+}
+
+function performRemoveExercise(id){
+  const day = getPlan()[ui.day];
+  const ex = day && day.ex.find(item => item.id === id);
+  if(!ex){
+    const rec = S.logs[ui.date] && S.logs[ui.date][id];
+    if(!rec) return;
+    showAppConfirm({
+      title: 'Remove exercise?',
+      message: 'Remove this off-plan exercise and its logged sets from this date?',
+      confirmLabel: 'Remove',
+      danger: true,
+      onConfirm: ()=>{
+        delete S.logs[ui.date][id];
+        if(!Object.keys(S.logs[ui.date]).length) delete S.logs[ui.date];
+        delete ui.extra[id];
+        pruneArchivedExercises();
+        saveState(0);
+        render();
+      }
+    });
+    return;
+  }
+  showAppConfirm({
+    title: 'Remove from routine?',
+    message: 'Remove "'+ex.name+'" from this routine? Past logs stay in Progress.',
+    confirmLabel: 'Remove',
+    danger: true,
+    onConfirm: ()=>{
+      const hasHistory = Object.values(S.logs||{}).some(log => log && log[id] && filled(log[id]));
+      if(hasHistory){
+        if(!S.archivedExercises) S.archivedExercises = {};
+        S.archivedExercises[id] = { name: ex.name, sets: ex.sets, range: ex.range };
+      }
+      day.ex = day.ex.filter(item => item.id !== id);
+      delete ui.extra[id];
+      if(ui.prog === id) ui.prog = null;
+      pruneArchivedExercises();
+      saveState(0);
+      render();
+    }
+  });
+}
+
+function startRenameExercise(exId){
+  const card = [...document.querySelectorAll('[data-ex-card]')].find(c => c.getAttribute('data-ex-card') === exId);
+  if(!card) return;
+  const label = card.querySelector('.ex-name-label');
+  const input = card.querySelector('.ex-name-input');
+  if(!label || !input) return;
+  document.querySelectorAll('.ex-name-input').forEach(el=>{
+    if(el === input) return;
+    el.style.display = 'none';
+    const lab = el.parentElement && el.parentElement.querySelector('.ex-name-label');
+    if(lab) lab.style.display = '';
+  });
+  label.style.display = 'none';
+  input.style.display = 'block';
+  input.value = label.textContent || '';
+  input.focus();
+  input.select();
+  haptic(8);
+}
+
+function positionExerciseContextMenu(menu, card){
+  const gap = 10;
+  const pad = 12;
+  const safeTop = 8 + (parseInt(getComputedStyle(document.documentElement).paddingTop) || 0);
+  const safeBottom = 96 + (parseInt(getComputedStyle(document.body).paddingBottom) || 0);
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  menu.style.left = '0px';
+  menu.style.top = '0px';
+  menu.style.visibility = 'hidden';
+  menu.style.display = 'block';
+  const mw = menu.offsetWidth;
+  const mh = menu.offsetHeight;
+  menu.style.visibility = '';
+
+  const place = ()=>{
+    const vr = card.getBoundingClientRect();
+    const spaceBelow = vh - safeBottom - vr.bottom;
+    const spaceAbove = vr.top - safeTop;
+    let below = true;
+    if(spaceBelow < mh + gap && spaceAbove >= mh + gap) below = false;
+    else if(spaceBelow >= mh + gap) below = true;
+    else if(spaceAbove >= spaceBelow) below = false;
+
+    let top = below ? vr.bottom + gap : vr.top - gap - mh;
+    let left = vr.left + (vr.width - mw) / 2;
+    left = Math.max(pad, Math.min(left, vw - mw - pad));
+    top = Math.max(safeTop, Math.min(top, vh - safeBottom - mh));
+
+    menu.style.left = Math.round(left) + 'px';
+    menu.style.top = Math.round(top) + 'px';
+    menu.classList.toggle('place-above', !below);
+    return { below, spaceBelow, spaceAbove, mh, vr };
+  };
+
+  let info = place();
+  const needsScroll =
+    (info.below && info.spaceBelow < info.mh + gap) ||
+    (!info.below && info.spaceAbove < info.mh + gap);
+
+  if(needsScroll){
+    const overflow = info.below
+      ? (info.mh + gap) - info.spaceBelow
+      : (info.mh + gap) - info.spaceAbove;
+    const targetScroll = info.below
+      ? window.scrollY + overflow + 8
+      : Math.max(0, window.scrollY - overflow - 8);
+    if(exCtx) exCtx.ignoreScrollUntil = Date.now() + 450;
+    window.scrollTo({ top: targetScroll, behavior: 'smooth' });
+    let frames = 0;
+    const reposition = ()=>{
+      frames++;
+      place();
+      if(frames < 24) requestAnimationFrame(reposition);
+    };
+    requestAnimationFrame(reposition);
+    setTimeout(()=>place(), 360);
+  }
+}
+
+function openExerciseContextMenu(card, clientX, clientY){
+  if(!card || (ui.tab !== 'today' && ui.tab !== 'log')) return;
+  const id = card.getAttribute('data-ex-card');
+  if(!id) return;
+
+  // Preserve ignoreScrollUntil if we were mid-press
+  const prevIgnore = exCtx && exCtx.ignoreScrollUntil;
+  closeExerciseContextMenu();
+
+  card.classList.remove('ctx-pressing');
+  card.classList.add('ctx-pressed');
+  card.style.transform = '';
+  haptic([12, 40, 16]);
+
+  const iconPencil = '<svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+  const iconX = '<svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+
+  const bd = document.createElement('div');
+  bd.id = 'ex-ctx-backdrop';
+  bd.className = 'ex-ctx-backdrop';
+  bd.addEventListener('pointerdown', e=>{ e.preventDefault(); closeExerciseContextMenu(); }, {passive:false});
+
+  const menu = document.createElement('div');
+  menu.id = 'ex-ctx-menu';
+  menu.className = 'ex-ctx-menu';
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML =
+    '<button type="button" data-ctx="rename" role="menuitem">'+iconPencil+'<span>Rename</span></button>'+
+    '<button type="button" data-ctx="remove" class="danger" role="menuitem">'+iconX+'<span>Remove</span></button>';
+
+  menu.addEventListener('click', e=>{
+    const b = e.target.closest('[data-ctx]');
+    if(!b) return;
+    const act = b.getAttribute('data-ctx');
+    const exId = id;
+    closeExerciseContextMenu();
+    if(act === 'rename') startRenameExercise(exId);
+    else if(act === 'remove') performRemoveExercise(exId);
+  });
+
+  document.body.appendChild(bd);
+  document.body.appendChild(menu);
+  positionExerciseContextMenu(menu, card);
+  exCtx = { card, id, opened: true, ignoreScrollUntil: prevIgnore || 0 };
+}
+
+function beginProgressivePress(card){
+  if(!card) return null;
+  if(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches){
+    card.classList.add('ctx-pressing');
+    return null;
+  }
+  card.classList.add('ctx-pressing');
+  const t0 = performance.now();
+  const dur = 420;
+  let raf = 0;
+  const step = (now)=>{
+    if(!exCtx || exCtx.card !== card || exCtx.opened) return;
+    const p = Math.min(1, (now - t0) / dur);
+    // Ease out toward 1.03
+    const s = 1 + 0.03 * (1 - Math.pow(1 - p, 2));
+    card.style.transform = 'scale('+s.toFixed(4)+')';
+    if(p < 1){
+      raf = requestAnimationFrame(step);
+      if(exCtx) exCtx.pressRaf = raf;
+    }
+  };
+  raf = requestAnimationFrame(step);
+  return raf;
+}
+
+function onExCtxPointerDown(e){
+  if(ui.tab !== 'today' && ui.tab !== 'log') return;
+  if(e.pointerType === 'mouse' && e.button !== 0) return;
+  if(document.body.classList.contains('exercise-reordering')) return;
+  if(e.target.closest('input, textarea, select, button, a, .drag-handle, [data-drag-handle], [data-act]')) return;
+  const card = e.target.closest('[data-ex-card]');
+  if(!card) return;
+
+  if(exCtx && exCtx.timer) clearTimeout(exCtx.timer);
+  if(exCtx && exCtx.pressRaf) cancelAnimationFrame(exCtx.pressRaf);
+  if(exCtx && !exCtx.opened) closeExerciseContextMenu();
+
+  const startX = e.clientX, startY = e.clientY;
+  const pointerId = e.pointerId;
+  exCtx = {
+    card, id: card.getAttribute('data-ex-card'),
+    startX, startY, pointerId, opened: false, ignoreScrollUntil: 0,
+    pressRaf: null,
+    timer: null
+  };
+  exCtx.pressRaf = beginProgressivePress(card);
+  exCtx.timer = setTimeout(()=>{
+    if(!exCtx || exCtx.card !== card) return;
+    if(exCtx.pressRaf) cancelAnimationFrame(exCtx.pressRaf);
+    openExerciseContextMenu(card, startX, startY);
+  }, 480);
+}
+
+function onExCtxPointerMove(e){
+  if(!exCtx || exCtx.opened) return;
+  if(exCtx.pointerId !== undefined && e.pointerId !== exCtx.pointerId) return;
+  const dx = e.clientX - exCtx.startX;
+  const dy = e.clientY - exCtx.startY;
+  if(Math.hypot(dx, dy) > 12){
+    if(exCtx.timer) clearTimeout(exCtx.timer);
+    if(exCtx.pressRaf) cancelAnimationFrame(exCtx.pressRaf);
+    if(exCtx.card){
+      exCtx.card.classList.remove('ctx-pressing');
+      exCtx.card.style.transform = '';
+    }
+    exCtx = null;
+  }
+}
+
+function onExCtxPointerUp(e){
+  if(!exCtx) return;
+  if(exCtx.pointerId !== undefined && e.pointerId !== undefined && e.pointerId !== exCtx.pointerId) return;
+  if(!exCtx.opened){
+    if(exCtx.timer) clearTimeout(exCtx.timer);
+    if(exCtx.pressRaf) cancelAnimationFrame(exCtx.pressRaf);
+    if(exCtx.card){
+      exCtx.card.classList.remove('ctx-pressing');
+      exCtx.card.style.transform = '';
+    }
+    exCtx = null;
+  }
+}
+
+function dismissExLongpressTip(){
+  try{ localStorage.setItem(EX_TIP_KEY, '1'); }catch(_){}
+  const el = document.getElementById('ex-longpress-tip');
+  if(el) el.remove();
+}
+
+function shouldShowExLongpressTip(){
+  try{ return !localStorage.getItem(EX_TIP_KEY); }catch(_){ return false; }
+}
+
+function renderExLongpressTipHtml(){
+  if(!shouldShowExLongpressTip()) return '';
+  return '<div class="ex-tip" id="ex-longpress-tip" role="status">'+
+    '<div style="flex:1"><b>Tip</b>Hold an exercise card for Rename and Remove.</div>'+
+    '<button type="button" class="ex-tip-dismiss" data-act="dismiss-ex-tip" aria-label="Dismiss tip">×</button>'+
+  '</div>';
+}
+
+
+document.addEventListener('contextmenu', e => {
+  if(e.target.closest && e.target.closest('[data-ex-card]')){
+    if(!e.target.closest('input, textarea')) e.preventDefault();
+  }
+});
+
+document.addEventListener('pointerdown', onExCtxPointerDown, {passive:true});
+document.addEventListener('pointermove', onExCtxPointerMove, {passive:true});
+document.addEventListener('pointerup', onExCtxPointerUp, {passive:true});
+document.addEventListener('pointercancel', onExCtxPointerUp, {passive:true});
+document.addEventListener('scroll', ()=>{
+  if(!exCtx || !exCtx.opened) return;
+  if(exCtx.ignoreScrollUntil && Date.now() < exCtx.ignoreScrollUntil) return;
+  closeExerciseContextMenu();
+}, {passive:true});
+document.addEventListener('keydown', e=>{ if(e.key === 'Escape') closeExerciseContextMenu(); });
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'hidden') closeExerciseContextMenu();
+});
+
+
 document.addEventListener('click', e => {
   const btn = e.target.closest('[data-act]');
   if(!btn) return;
@@ -2934,7 +3847,10 @@ document.addEventListener('click', e => {
   const v = btn.getAttribute('data-v');
   const id = btn.getAttribute('data-id');
 
-  if(a==='go'){
+  if(a==='dismiss-ex-tip'){
+    dismissExLongpressTip();
+  }
+  else if(a==='go'){
     ui.tab = v;
     render();
   }
@@ -2956,6 +3872,154 @@ document.addEventListener('click', e => {
     S.activeRoutine = v;
     saveState(0);
     render();
+  }
+  else if(a==='cust-toggle-day'){
+    const di = parseInt(btn.getAttribute('data-di'), 10);
+    ui.custEditDay = (ui.custEditDay === di) ? null : di;
+    render(true);
+  }
+  else if(a==='cust-add-day'){
+    const plan = getCustomPlan();
+    plan.push({ name: 'Day '+(plan.length+1), ex: [] });
+    ui.custEditDay = plan.length - 1;
+    saveState(0);
+    render(true);
+  }
+  else if(a==='cust-del-day'){
+    const di = parseInt(btn.getAttribute('data-di'), 10);
+    const plan = getCustomPlan();
+    if(di<0 || di>=plan.length) return;
+    const day = plan[di];
+    showAppConfirm({
+      title: 'Delete day?',
+      message: 'Remove "'+(day && day.name ? day.name : 'this day')+'" from the Custom Split? Exercise history is kept.',
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: ()=>{
+        // Archive exercises that still have history
+        (day.ex||[]).forEach(ex=>{
+          const hasHistory = Object.values(S.logs||{}).some(log=>log&&log[ex.id]&&filled(log[ex.id]));
+          if(hasHistory){
+            if(!S.archivedExercises) S.archivedExercises = {};
+            S.archivedExercises[ex.id] = { name: ex.name, sets: ex.sets, range: ex.range };
+          }
+        });
+        plan.splice(di, 1);
+        if(ui.custEditDay === di) ui.custEditDay = null;
+        else if(ui.custEditDay != null && ui.custEditDay > di) ui.custEditDay--;
+        pruneArchivedExercises();
+        saveState(0);
+        render(true);
+      }
+    });
+  }
+  else if(a==='cust-dup-day'){
+    const di = parseInt(btn.getAttribute('data-di'), 10);
+    const plan = getCustomPlan();
+    if(di<0 || di>=plan.length) return;
+    const src = plan[di];
+    const copy = {
+      name: (src.name||'Day')+' (copy)',
+      ex: (src.ex||[]).map(e=>({ id: newExerciseId(), name: e.name, sets: e.sets, range: e.range }))
+    };
+    plan.splice(di+1, 0, copy);
+    ui.custEditDay = di+1;
+    saveState(0);
+    render(true);
+  }
+  else if(a==='cust-move-day'){
+    const di = parseInt(btn.getAttribute('data-di'), 10);
+    const dir = parseInt(v, 10);
+    const plan = getCustomPlan();
+    const nj = di + dir;
+    if(di<0 || nj<0 || nj>=plan.length) return;
+    const tmp = plan[di];
+    plan[di] = plan[nj];
+    plan[nj] = tmp;
+    if(ui.custEditDay === di) ui.custEditDay = nj;
+    else if(ui.custEditDay === nj) ui.custEditDay = di;
+    saveState(0);
+    render(true);
+  }
+  else if(a==='cust-add-ex'){
+    const di = parseInt(btn.getAttribute('data-di'), 10);
+    const plan = getCustomPlan();
+    if(di<0 || di>=plan.length) return;
+    const name = prompt('Exercise name:');
+    if(name === null) return;
+    const clean = name.trim();
+    if(!clean){ alert('Please enter an exercise name.'); return; }
+    if((plan[di].ex||[]).some(e=>e.name.toLowerCase()===clean.toLowerCase())){
+      alert('That exercise is already on this day.'); return;
+    }
+    const setsIn = prompt('Working sets?', '3');
+    if(setsIn === null) return;
+    const sets = parseInt(setsIn, 10);
+    if(!Number.isInteger(sets) || sets<1 || sets>20){ alert('Enter sets from 1 to 20.'); return; }
+    const rangeIn = prompt('Rep range (e.g. 8-12):', '8-12');
+    if(rangeIn === null) return;
+    if(!plan[di].ex) plan[di].ex = [];
+    plan[di].ex.push(newCustomExercise(clean, sets, rangeIn.trim()||'8-12'));
+    saveState(0);
+    render(true);
+  }
+  else if(a==='cust-del-ex'){
+    const di = parseInt(btn.getAttribute('data-di'), 10);
+    const ei = parseInt(btn.getAttribute('data-ei'), 10);
+    const plan = getCustomPlan();
+    if(!plan[di] || !plan[di].ex || ei<0 || ei>=plan[di].ex.length) return;
+    const ex = plan[di].ex[ei];
+    const hasHistory = Object.values(S.logs||{}).some(log=>log&&log[ex.id]&&filled(log[ex.id]));
+    if(hasHistory){
+      if(!S.archivedExercises) S.archivedExercises = {};
+      S.archivedExercises[ex.id] = { name: ex.name, sets: ex.sets, range: ex.range };
+    }
+    plan[di].ex.splice(ei, 1);
+    pruneArchivedExercises();
+    saveState(0);
+    render(true);
+  }
+  else if(a==='cust-move-ex'){
+    const di = parseInt(btn.getAttribute('data-di'), 10);
+    const ei = parseInt(btn.getAttribute('data-ei'), 10);
+    const dir = parseInt(v, 10);
+    const plan = getCustomPlan();
+    if(!plan[di] || !plan[di].ex) return;
+    const nj = ei + dir;
+    if(ei<0 || nj<0 || nj>=plan[di].ex.length) return;
+    const arr = plan[di].ex;
+    const tmp = arr[ei]; arr[ei] = arr[nj]; arr[nj] = tmp;
+    saveState(0);
+    render(true);
+  }
+  else if(a==='cust-reset'){
+    showAppConfirm({
+      title: 'Reset Custom Split?',
+      message: 'Replace your Custom Split with the default template. Push–Pull–Legs is not affected. Logs are kept.',
+      confirmLabel: 'Reset',
+      danger: true,
+      onConfirm: ()=>{
+        S.routines.custom = buildPlan(CUSTOM_ROUTINE);
+        ui.custEditDay = null;
+        saveState(0);
+        render(true);
+      }
+    });
+  }
+  else if(a==='cust-clone-ppl'){
+    showAppConfirm({
+      title: 'Clone PPL into Custom?',
+      message: 'Overwrite Custom Split with a copy of Push–Pull–Legs (new exercise IDs). Your PPL preset stays unchanged.',
+      confirmLabel: 'Clone',
+      danger: false,
+      onConfirm: ()=>{
+        const src = S.routines.ppl || buildPlan(PPL_ROUTINE);
+        S.routines.custom = clonePlanWithFreshIds(src);
+        ui.custEditDay = null;
+        saveState(0);
+        render(true);
+      }
+    });
   }
   else if(a==='sethomemetric'){
     ui.homeMetric = v;
@@ -3059,38 +4123,33 @@ document.addEventListener('click', e => {
     }
   }
   else if(a==='removeexercise'){
-    const day=getPlan()[ui.day];
-    const ex=day&&day.ex.find(item=>item.id===id);
-    if(!ex){
-      const rec=S.logs[ui.date]&&S.logs[ui.date][id];
-      if(rec&&confirm('Remove this off-plan exercise and its logged sets from this date?')){
-        delete S.logs[ui.date][id];
-        if(!Object.keys(S.logs[ui.date]).length) delete S.logs[ui.date];
-        delete ui.extra[id];
-        pruneArchivedExercises();
-        saveState(0);
-        render();
-      }
-      return;
-    }
-    if(ex&&confirm(`Remove "${ex.name}" from this workout routine? Past logs will be kept and remain available in Progress. This change affects future weeks too.`)){
-      const hasHistory=Object.values(S.logs||{}).some(log=>log&&log[id]&&filled(log[id]));
-      if(hasHistory){
-        if(!S.archivedExercises)S.archivedExercises={};
-        S.archivedExercises[id]={name:ex.name,sets:ex.sets,range:ex.range};
-      }
-      day.ex=day.ex.filter(item=>item.id!==id);
-      delete ui.extra[id];
-      if(ui.prog===id)ui.prog=null;
-      pruneArchivedExercises();
-      saveState(0);
-      render();
-    }
+    performRemoveExercise(id);
   }
   else if(a==='addset'){
+    const ex = resolveLogExercise(id);
+    const rec = (S.logs[ui.date] && S.logs[ui.date][id]) || {sets:[], note:''};
+    const currentN = visibleSetCount(ex, rec, ui.date);
     haptic(10);
-    ui.extra[id] = (ui.extra[id] || 0) + 1;
-    render();
+    ui.extra[setCountKey(id, ui.date)] = currentN + 1;
+    animateAddSetRow(id);
+  }
+  else if(a==='removeset'){
+    const ex = resolveLogExercise(id);
+    const rec = (S.logs[ui.date] && S.logs[ui.date][id]) || {sets:[], note:''};
+    const currentN = visibleSetCount(ex, rec, ui.date);
+    if(currentN <= 1) return;
+    haptic(10);
+    const nextN = currentN - 1;
+    ui.extra[setCountKey(id, ui.date)] = nextN;
+    // Truncate any trailing logged set slots beyond the new visible count
+    if(S.logs[ui.date] && S.logs[ui.date][id] && Array.isArray(S.logs[ui.date][id].sets) && S.logs[ui.date][id].sets.length > nextN){
+      S.logs[ui.date][id].sets = S.logs[ui.date][id].sets.slice(0, nextN);
+      saveState(0);
+    }
+    animateRemoveSetRow(id, nextN);
+  }
+  else if(a==='renameexercise'){
+    startRenameExercise(id);
   }
   else if(a==='starttimer'){
     haptic(10);
@@ -3164,6 +4223,39 @@ document.addEventListener('click', e => {
 
 document.addEventListener('input', e => {
   const el = e.target;
+  const cust = el.getAttribute('data-cust');
+  if(cust){
+    const di = parseInt(el.getAttribute('data-di'), 10);
+    const ei = parseInt(el.getAttribute('data-ei'), 10);
+    const plan = getCustomPlan();
+    if(!Number.isInteger(di) || di<0 || di>=plan.length) return;
+    if(cust === 'dayname'){
+      const name = el.value.trim();
+      if(name) plan[di].name = name;
+      saveState(400);
+      return;
+    }
+    if(!plan[di].ex || !Number.isInteger(ei) || ei<0 || ei>=plan[di].ex.length) return;
+    if(cust === 'exname'){
+      const name = el.value.trim();
+      if(name) plan[di].ex[ei].name = name;
+      saveState(400);
+      return;
+    }
+    if(cust === 'sets'){
+      const n = parseInt(el.value, 10);
+      if(Number.isInteger(n) && n>=1 && n<=20) plan[di].ex[ei].sets = n;
+      saveState(400);
+      return;
+    }
+    if(cust === 'range'){
+      const r = el.value.trim();
+      if(r) plan[di].ex[ei].range = r;
+      saveState(400);
+      return;
+    }
+    return;
+  }
   const f = el.getAttribute('data-f');
   const id = el.getAttribute('data-id');
   const i = el.getAttribute('data-i');
@@ -3223,6 +4315,29 @@ document.addEventListener('input', e => {
 });
 
 document.addEventListener('change', e => {
+  const cust = e.target.getAttribute && e.target.getAttribute('data-cust');
+  if(cust === 'dayname' || cust === 'exname' || cust === 'range' || cust === 'sets'){
+    const di = parseInt(e.target.getAttribute('data-di'), 10);
+    const ei = parseInt(e.target.getAttribute('data-ei'), 10);
+    const plan = getCustomPlan();
+    if(cust === 'dayname' && plan[di]){
+      if(!e.target.value.trim()){ e.target.value = plan[di].name; }
+      else { plan[di].name = e.target.value.trim(); saveState(0); }
+    }
+    if(cust === 'exname' && plan[di] && plan[di].ex && plan[di].ex[ei]){
+      if(!e.target.value.trim()){ e.target.value = plan[di].ex[ei].name; }
+      else { plan[di].ex[ei].name = e.target.value.trim(); saveState(0); }
+    }
+    if(cust === 'sets' && plan[di] && plan[di].ex && plan[di].ex[ei]){
+      const n = parseInt(e.target.value, 10);
+      if(!Number.isInteger(n) || n<1 || n>20){ e.target.value = plan[di].ex[ei].sets; }
+      else { plan[di].ex[ei].sets = n; saveState(0); }
+    }
+    if(cust === 'range' && plan[di] && plan[di].ex && plan[di].ex[ei]){
+      if(!e.target.value.trim()){ e.target.value = plan[di].ex[ei].range; }
+      else { plan[di].ex[ei].range = e.target.value.trim(); saveState(0); }
+    }
+  }
   if(e.target.id === 'date'){
     const candidate = e.target.value;
     if(isValidISODate(candidate)){
@@ -3367,4 +4482,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.6.3 -->
+</html><!-- END OF FILE — Lift Log version 1.7.1 -->
