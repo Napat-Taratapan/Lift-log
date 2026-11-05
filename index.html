@@ -1,6 +1,9 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.8.1
+  Current version: 1.8.2
+  Version 1.8.2 change log:
+  - Remove the tinted blur behind the exercise hold menu, clear accidental page selection when it opens, and open it before iOS can show its text-selection handle.
+
   Version 1.8.1 change log:
   - Hide the top-right Settings button while the Settings page is open.
 
@@ -209,8 +212,7 @@ h3 .ex-name-input{margin:0;border:1px solid var(--acc);box-shadow:0 0 0 2px var(
 }
 .ex-ctx-backdrop{
   position: fixed; inset: 0; z-index: 120;
-  background: rgba(0,0,0,0.28);
-  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+  background: rgba(0,0,0,0.42);
   animation: fadeIn 0.18s ease;
 }
 .ex-ctx-menu{
@@ -2644,7 +2646,7 @@ function vSet(){
     <div id="bkmsg" class="meta" style="margin-top:6px"></div>
   </div>`;
 
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.8.1</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.8.2</div></div>`;
 
   return h;
 }
@@ -3810,6 +3812,8 @@ function openExerciseContextMenu(card, clientX, clientY){
   if(!card || (ui.tab !== 'today' && ui.tab !== 'log')) return;
   const id = card.getAttribute('data-ex-card');
   if(!id) return;
+  const selection=window.getSelection&&window.getSelection();
+  if(selection && !selection.isCollapsed) selection.removeAllRanges();
 
   // Preserve ignoreScrollUntil if we were mid-press
   const prevIgnore = exCtx && exCtx.ignoreScrollUntil;
@@ -3912,7 +3916,7 @@ function onExCtxPointerDown(e){
     if(!exCtx || exCtx.card !== card) return;
     if(exCtx.pressRaf) cancelAnimationFrame(exCtx.pressRaf);
     openExerciseContextMenu(card, startX, startY);
-  }, 480);
+  }, 380);
 }
 
 function onExCtxPointerMove(e){
@@ -4662,4 +4666,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.8.1 -->
+</html><!-- END OF FILE — Lift Log version 1.8.2 -->
