@@ -1,6 +1,27 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.7.2
+  Current version: 1.8.1
+  Version 1.8.1 change log:
+  - Hide the top-right Settings button while the Settings page is open.
+
+  Version 1.8.0 change log:
+  - Add View Progress to the exercise hold menu; open the selected exercise chart with a smooth tab transition and return controls that restore the workout date, day, and scroll position.
+
+  Version 1.7.5 change log:
+  - Try each saved backup and recovery copy independently, so one unreadable fallback cannot block restoration from another valid copy.
+  - Report whether the current unreadable data was actually preserved, and only offer its recovery download when that copy exists.
+  - Keep failed-save warnings visible through successful storage reads; a successful data write clears the warning.
+  - Align the Settings version label and file footer with the current version.
+
+  Versioning rule: Every code change must update the version and add a changelog entry.
+  Use a patch bump for bug fixes, a minor bump for backward-compatible features, and a major bump for breaking changes.
+
+  Version 1.7.4 change log:
+  - Prevent iOS text selection and the Copy/Look Up/Translate callout when long-pressing exercise cards; keep selection enabled in workout inputs.
+
+  Version 1.7.3 change log:
+  - Fixed data-loss recovery logic: keep a valid backup before overwriting saved state and restore from backup if primary storage becomes unreadable.
+  - Keep unreadable saved data untouched if a recovery copy cannot be written.
 
   Version 1.7.2 change log:
   - Validate imported workout logs and report invalid backups instead of silently dropping malformed records.
@@ -362,7 +383,8 @@ input[type=color]{width:56px;height:36px;padding:2px;cursor:pointer}
   transition:transform 0.22s cubic-bezier(0.22, 1, 0.36, 1) !important;
   will-change:transform;
 }
-.exercise-card{touch-action:pan-y;transition:transform 0.28s cubic-bezier(0.22,1,0.36,1),opacity .16s ease,border-color .16s ease,box-shadow .16s ease;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.exercise-card,.exercise-card *:not(input):not(textarea){-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.exercise-card{touch-action:pan-y;transition:transform 0.28s cubic-bezier(0.22,1,0.36,1),opacity .16s ease,border-color .16s ease,box-shadow .16s ease}
 .exercise-card input,.exercise-card textarea{-webkit-user-select:text;user-select:text}
 .drag-handle:active{cursor:grabbing}
 body.exercise-reordering{user-select:none;-webkit-user-select:none;cursor:grabbing;overscroll-behavior:contain;touch-action:none}
@@ -699,7 +721,25 @@ svg{width:100%;height:auto;display:block}
 function haptic(ms=10) { if(navigator.vibrate) navigator.vibrate(ms); }
 
 const KEY='liftlog_v2', TKEY='liftlog_theme_v2';
+const BACKUP_KEY = KEY + '_backup';
+const RECOVERY_KEY = KEY + '_corrupt';
 const DEFT={bg:'#141413',card:'#1e1e1c',acc:'#ff8a4c',ink:'#efefea',up:'#37b24d',down:'#f03e3e',heatTrain:'#ff8a4c',heatRest:'#5c7cfa',glass:false,restTimerMin:3,homeGraphType:'line',progGraphType:'line',alarmType:'beep',customAlarmData:''};
+function safeStorageGet(key){
+  try{ return localStorage.getItem(key); }catch(_){ storageOK=false; return null; }
+}
+function safeStorageSet(key, value){
+  try{ localStorage.setItem(key, value); storageOK=true; return true; }catch(_){ storageOK=false; return false; }
+}
+function safeStorageRemove(key){
+  try{ localStorage.removeItem(key); return true; }catch(_){ storageOK=false; return false; }
+}
+function defaultState(){
+  return {
+    activeRoutine:'ppl',
+    routines:{ppl:buildPlan(PPL_ROUTINE),custom:buildPlan(CUSTOM_ROUTINE)},
+    logs:{}
+  };
+}
 
 const PPL_ROUTINE=[
   ["Monday - Pull",[["Lat Pulldown Machine",3,"8-12"],["Chest-Supported Row Machine",3,"8-12"],["Seated Cable Row",2,"10-15"],["Machine Pullover",2,"10-15"],["Reverse Pec Deck",3,"12-15"],["Preacher Curl Machine",3,"8-12"],["Cable Hammer Curl",2,"10-15"]]],
@@ -807,7 +847,7 @@ function renderCustomRoutineEditor(){
   return h;
 }
 
-let storageOK=true, loadProblem=null;
+let storageOK=true, loadProblem=null, recoveryCopyAvailable=false;
 
 function sanitizeImportedState(o){
   const bad=m=>{throw new Error(m)};
@@ -864,21 +904,42 @@ function sanitizeImportedState(o){
 }
 
 function loadState(){
-  let r=null;
-  try{ r=localStorage.getItem(KEY); }catch(e){ storageOK=false; }
-  if(r){
+  recoveryCopyAvailable=false;
+  const primary = safeStorageGet(KEY);
+  const backup = safeStorageGet(BACKUP_KEY);
+  let recovery = safeStorageGet(RECOVERY_KEY);
+
+  if(primary !== null){
     try{
-      return sanitizeImportedState(JSON.parse(r));
+      return sanitizeImportedState(JSON.parse(primary));
     }catch(e){
-      loadProblem='Your saved workout data could not be read ('+(e.message||'unknown error')+'). A recovery copy was kept and the app started with fresh defaults.';
-      try{ if(!localStorage.getItem(KEY+'_corrupt')) localStorage.setItem(KEY+'_corrupt', r); }catch(_){}
+      let recoverySaved=recovery===primary;
+      recoveryCopyAvailable=recoverySaved;
+      if(!recovery){ recoverySaved=safeStorageSet(RECOVERY_KEY, primary); if(recoverySaved) recovery=primary; }
+      recoveryCopyAvailable=recoverySaved;
+      for(const [candidate,label] of [[backup,'backup'],[recovery,'recovery copy']]){
+        if(!candidate) continue;
+        try{
+          const restored=sanitizeImportedState(JSON.parse(candidate));
+          loadProblem='Your saved workout data could not be read ('+(e.message||'unknown error')+'). A valid '+label+' was restored; '+(recoverySaved?'the unreadable data was kept as a recovery copy.':'a recovery copy could not be written, so the unreadable original remains untouched.');
+          return restored;
+        }catch(_){ }
+      }
+      loadProblem='Your saved workout data could not be read ('+(e.message||'unknown error')+'). '+(recoverySaved?'A recovery copy was saved.':'A recovery copy could not be written, so the unreadable original remains untouched.')+' The app started with fresh defaults.';
+    }
+  } else {
+    for(const [candidate,label] of [[backup,'backup'],[recovery,'recovery copy']]){
+      if(!candidate) continue;
+      try{
+        const restored=sanitizeImportedState(JSON.parse(candidate));
+        loadProblem='The main saved data was unavailable. A valid '+label+' was restored.';
+        recoveryCopyAvailable=label==='recovery copy';
+        return restored;
+      }catch(_){ }
     }
   }
-  return {
-    activeRoutine:'ppl',
-    routines:{ppl:buildPlan(PPL_ROUTINE),custom:buildPlan(CUSTOM_ROUTINE)},
-    logs:{}
-  };
+
+  return defaultState();
 }
 
 function applyImportedState(o){
@@ -942,9 +1003,42 @@ const PERF={weeklyCap:52, sessionCap:40, tablePage:25, storageSoftPct:70};
 let _derived={weekly:{}, sessions:null, streak:null};
 function invalidateDerived(){ _derived={weekly:{}, sessions:null, streak:null}; }
 function saveStateImmediate(){
+  const payload = JSON.stringify(S);
   try{
-    localStorage.setItem(KEY, JSON.stringify(S));
-    storageOK = true;
+    let current;
+    try{ current=localStorage.getItem(KEY); }
+    catch(_){
+      storageOK=false;
+      invalidateDerived();
+      warn();
+      return;
+    }
+    if(current !== null && current !== payload){
+      let currentIsValid = false;
+      try{
+        sanitizeImportedState(JSON.parse(current));
+        currentIsValid = true;
+      }catch(_){ }
+      if(currentIsValid){
+        if(safeStorageGet(BACKUP_KEY) !== current && !safeStorageSet(BACKUP_KEY, current)){
+          invalidateDerived();
+          warn();
+          return;
+        }
+      } else {
+        const recovery = safeStorageGet(RECOVERY_KEY);
+        if(recovery !== current && (recovery !== null || !safeStorageSet(RECOVERY_KEY, current))){
+          invalidateDerived();
+          warn();
+          return;
+        }
+      }
+    }
+    if(!safeStorageSet(KEY, payload)){
+      storageOK = false;
+    } else {
+      storageOK = true;
+    }
   }catch(e){
     storageOK = false;
   }
@@ -969,10 +1063,10 @@ function warn(){
   if(!el) return;
   let h = '';
   if(loadProblem){
-    h += '<div class="warn">'+esc(loadProblem)+' <button class="btn small" data-act="dlrecovery" style="margin-top:6px">Download recovery copy</button></div>';
+    h += '<div class="warn">'+esc(loadProblem)+(recoveryCopyAvailable?' <button class="btn small" data-act="dlrecovery" style="margin-top:6px">Download recovery copy</button>':'')+'</div>';
   }
   if(!storageOK){
-    h += '<div class="warn">Could not save workout data to this browser. Private mode or storage quota may be the cause. Export a backup now; recent changes may be lost.</div>';
+    h += '<div class="warn">Could not save workout data to this browser. Private mode or storage quota may be the cause. Recent changes may be lost. <button class="btn small" data-act="exptxt">Download a backup now</button></div>';
   } else {
     try{
       const soft=new Blob([JSON.stringify(S.logs||{})]).size/(5*1024*1024)*100;
@@ -1051,7 +1145,7 @@ const dayIdx=d=>{
 
 const dayFor=d=>dayIdx(d);
 const now=new Date();
-const ui={tab:'home',date:iso(now),day:0,dayOverrideDate:null,extra:{},homeMetric:'1rm',homeGraphType:T.homeGraphType||'line',progGraphType:T.progGraphType||'line',cm:{y:now.getFullYear(),m:now.getMonth()},overallShowAll:false,progShowAll:false,progTableAll:false,custEditDay:null};
+const ui={tab:'home',date:iso(now),day:0,dayOverrideDate:null,progressReturn:null,extra:{},homeMetric:'1rm',homeGraphType:T.homeGraphType||'line',progGraphType:T.progGraphType||'line',cm:{y:now.getFullYear(),m:now.getMonth()},overallShowAll:false,progShowAll:false,progTableAll:false,custEditDay:null};
 let lastRenderedTab=null;
 let lastRenderedDate=null;
 let lastRenderedDay=null;
@@ -1885,7 +1979,22 @@ function render(skipAnim = false){
   lastRenderedTab=t;
   lastRenderedDate=ui.date;
   lastRenderedDay=ui.day;
-  document.getElementById('back').style.visibility=(t==='home'||t==='today')?'hidden':'visible';
+  const backBtn=document.getElementById('back');
+  const settingsBtn=document.querySelector('.bar button[data-v="set"]');
+  const onSettings=t==='set';
+  settingsBtn.style.visibility=onSettings?'hidden':'visible';
+  settingsBtn.setAttribute('aria-hidden',onSettings?'true':'false');
+  settingsBtn.tabIndex=onSettings?-1:0;
+  backBtn.style.visibility=(t==='home'||t==='today')?'hidden':'visible';
+  if(t==='prog' && ui.progressReturn){
+    backBtn.setAttribute('data-act','progress-back');
+    backBtn.removeAttribute('data-v');
+    backBtn.setAttribute('aria-label','Back to workout');
+  } else {
+    backBtn.setAttribute('data-act','go');
+    backBtn.setAttribute('data-v','home');
+    backBtn.setAttribute('aria-label','Back to menu');
+  }
   document.getElementById('ttl').textContent={home:'Lift Log',today:'Today’s Workout',log:'Log Workout',cal:'Calendar',prog:'Progress',set:'Settings'}[t]||'Lift Log';
 
   const navBtns=[...document.querySelectorAll('.bottom-nav button')];
@@ -2329,7 +2438,7 @@ function vProg(){
     overallNote=`<div class="meta" style="margin:6px 0">Showing all ${overallFull.length} weeks. <button class="btn small" data-act="progshow" data-v="overall-less">Show recent</button></div>`;
   }
 
-  let h=`<div class="card" style="margin-bottom:12px">
+  let h=ui.progressReturn?'':`<div class="card" style="margin-bottom:12px">
     <h3>
       <span>Overall Progress</span>
       <div class="chart-toggle-group">
@@ -2345,6 +2454,14 @@ function vProg(){
     ${overallNote}
     <div id="prog-overall-chart">${overallData.length?renderStockChart(overallData,ui.homeGraphType||'line'):'<div class="meta">Not enough data yet.</div>'}</div>
   </div>`;
+
+  if(ui.progressReturn){
+    const returnLabel='Back to '+(ui.progressReturn.dayName||'workout');
+    h+=`<div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px">
+      <div><b>${esc(e.name)}</b><div class="meta" style="margin:2px 0 0">Exercise progress</div></div>
+      <button class="btn small acc" data-act="progress-back">${esc(returnLabel)}</button>
+    </div>`;
+  }
 
   const seenNames=new Set(), selName=normName(e.name);
   const optHtml=x=>{const k=normName(x.name); if(seenNames.has(k)) return ''; seenNames.add(k); return `<option value="${esc(x.id)}"${k===selName?' selected':''}>${esc(x.name)}</option>`;};
@@ -2485,7 +2602,8 @@ function vSet(){
   h+='<div class="card"><h3>Storage & Data</h3>'+
     `<div class="meta" style="margin-top:6px">History Log Size: <b>${storageKB} KB</b> (${storagePct}% of ~5MB quota)</div>`+
     `<div style="width:100%;background:var(--bg);height:8px;border-radius:4px;overflow:hidden;margin:8px 0;border:1px solid var(--line)"><div style="width:${Math.max(2, storagePct)}%;background:${storagePct>80?'var(--down)':(storagePct>=PERF.storageSoftPct?'var(--acc)':'var(--acc)')};height:100%"></div></div>`+
-    (()=>{let has=false;try{has=!!localStorage.getItem(KEY+'_corrupt')}catch(_){}return has?`<div class="meta" style="margin:8px 0">A recovery copy of previously unreadable data is stored in this browser.</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><button class="btn small" data-act="dlrecovery">Download recovery copy</button><button class="btn small" data-act="droprecovery">Delete recovery copy</button></div>`:''})()+
+    (()=>{let has=false;try{has=!!safeStorageGet(RECOVERY_KEY)}catch(_){}return has?`<div class="meta" style="margin:8px 0">A recovery copy of previously unreadable data is stored in this browser.</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><button class="btn small" data-act="dlrecovery">Download recovery copy</button><button class="btn small" data-act="droprecovery">Delete recovery copy</button></div>`:''})()+
+
     `<div class="meta" style="margin-top:10px">Trim old logs only after exporting a backup. Dates on or after the cut-off are kept.</div>`+
     `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center">
       <input type="date" id="trim-before" style="flex:1;min-width:140px">
@@ -2526,7 +2644,7 @@ function vSet(){
     <div id="bkmsg" class="meta" style="margin-top:6px"></div>
   </div>`;
 
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.7.2</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.8.1</div></div>`;
 
   return h;
 }
@@ -3704,6 +3822,7 @@ function openExerciseContextMenu(card, clientX, clientY){
 
   const iconPencil = '<svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
   const iconX = '<svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+  const iconProgress = '<svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5M4 19h17"/><path d="m7 15 4-4 3 2 6-7"/></svg>';
 
   const bd = document.createElement('div');
   bd.id = 'ex-ctx-backdrop';
@@ -3715,6 +3834,7 @@ function openExerciseContextMenu(card, clientX, clientY){
   menu.className = 'ex-ctx-menu';
   menu.setAttribute('role', 'menu');
   menu.innerHTML =
+    '<button type="button" data-ctx="progress" role="menuitem">'+iconProgress+'<span>View progress</span></button>'+
     '<button type="button" data-ctx="rename" role="menuitem">'+iconPencil+'<span>Rename</span></button>'+
     '<button type="button" data-ctx="remove" class="danger" role="menuitem">'+iconX+'<span>Remove</span></button>';
 
@@ -3724,7 +3844,15 @@ function openExerciseContextMenu(card, clientX, clientY){
     const act = b.getAttribute('data-ctx');
     const exId = id;
     closeExerciseContextMenu();
-    if(act === 'rename') startRenameExercise(exId);
+    if(act === 'progress'){
+      const day=getPlan()[ui.day];
+      ui.progressReturn={date:ui.date,day:ui.day,dayOverrideDate:ui.dayOverrideDate,routine:S.activeRoutine,dayName:day&&day.name||'workout',scrollY:window.scrollY};
+      ui.prog=exId;
+      ui.tab='prog';
+      render();
+      window.scrollTo(0,0);
+    }
+    else if(act === 'rename') startRenameExercise(exId);
     else if(act === 'remove') performRemoveExercise(exId);
   });
 
@@ -3830,7 +3958,7 @@ function shouldShowExLongpressTip(){
 function renderExLongpressTipHtml(){
   if(!shouldShowExLongpressTip()) return '';
   return '<div class="ex-tip" id="ex-longpress-tip" role="status">'+
-    '<div style="flex:1"><b>Tip</b>Hold an exercise card for Rename and Remove.</div>'+
+    '<div style="flex:1"><b>Tip</b>Hold an exercise card for View Progress, Rename, and Remove.</div>'+
     '<button type="button" class="ex-tip-dismiss" data-act="dismiss-ex-tip" aria-label="Dismiss tip">×</button>'+
   '</div>';
 }
@@ -3840,6 +3968,9 @@ document.addEventListener('contextmenu', e => {
   if(e.target.closest && e.target.closest('[data-ex-card]')){
     if(!e.target.closest('input, textarea')) e.preventDefault();
   }
+});
+document.addEventListener('selectstart', e => {
+  if(e.target.closest && e.target.closest('[data-ex-card]') && !e.target.closest('input, textarea')) e.preventDefault();
 });
 
 document.addEventListener('pointerdown', onExCtxPointerDown, {passive:true});
@@ -3870,6 +4001,18 @@ document.addEventListener('click', e => {
   else if(a==='go'){
     ui.tab = v;
     render();
+  }
+  else if(a==='progress-back'){
+    const origin=ui.progressReturn;
+    if(!origin) return;
+    if(S.activeRoutine!==origin.routine){ S.activeRoutine=origin.routine; saveState(0); }
+    ui.date=origin.date;
+    ui.day=origin.day;
+    ui.dayOverrideDate=origin.dayOverrideDate;
+    ui.tab='today';
+    ui.progressReturn=null;
+    render();
+    requestAnimationFrame(()=>window.scrollTo({top:origin.scrollY||0,behavior:'smooth'}));
   }
   else if(a==='starttoday'){
     ui.date = iso(new Date());
@@ -4214,13 +4357,13 @@ document.addEventListener('click', e => {
     }
   }
   else if(a==='dlrecovery'){
-    let raw=null; try{ raw=localStorage.getItem(KEY+'_corrupt'); }catch(_){}
+    let raw=null; try{ raw=safeStorageGet(RECOVERY_KEY); }catch(_){ }
     if(raw) downloadTextFile(raw, exportFileName('rec','json'), 'application/json');
     else alert('No recovery copy was found in this browser.');
   }
   else if(a==='droprecovery'){
     if(confirm('Delete the recovery copy of the unreadable data? This cannot be undone.')){
-      try{ localStorage.removeItem(KEY+'_corrupt'); }catch(_){}
+      try{ safeStorageRemove(RECOVERY_KEY); }catch(_){}
       loadProblem=null;
       render();
     }
@@ -4519,4 +4662,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.7.2 -->
+</html><!-- END OF FILE — Lift Log version 1.8.1 -->
