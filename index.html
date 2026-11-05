@@ -1,6 +1,9 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.8.2
+  Current version: 1.8.3
+  Version 1.8.3 change log:
+  - Restore the blurred exercise-menu backdrop while keeping the accidental-selection fix.
+
   Version 1.8.2 change log:
   - Remove the tinted blur behind the exercise hold menu, clear accidental page selection when it opens, and open it before iOS can show its text-selection handle.
 
@@ -212,7 +215,8 @@ h3 .ex-name-input{margin:0;border:1px solid var(--acc);box-shadow:0 0 0 2px var(
 }
 .ex-ctx-backdrop{
   position: fixed; inset: 0; z-index: 120;
-  background: rgba(0,0,0,0.42);
+  background: rgba(0,0,0,0.28);
+  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
   animation: fadeIn 0.18s ease;
 }
 .ex-ctx-menu{
@@ -2646,7 +2650,7 @@ function vSet(){
     <div id="bkmsg" class="meta" style="margin-top:6px"></div>
   </div>`;
 
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.8.2</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.8.3</div></div>`;
 
   return h;
 }
@@ -4666,4 +4670,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.8.2 -->
+</html><!-- END OF FILE — Lift Log version 1.8.3 -->
