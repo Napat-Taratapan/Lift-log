@@ -1,6 +1,15 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.7.1
+  Current version: 1.7.2
+
+  Version 1.7.2 change log:
+  - Validate imported workout logs and report invalid backups instead of silently dropping malformed records.
+  - Avoid assigning CSV/TXT imports to the first exercise when multiple exercises share a name; skip blank exercise names.
+  - Confirm before removing a set that contains logged values.
+  - Show a clear warning when workout data cannot be saved to browser storage.
+  - Preserve notes in text backups and avoid treating DATE text inside a note as a new workout block.
+  - Catch up the rest timer when the app returns to the foreground.
+  - Allow custom routine days beyond seven to be selected directly on the workout log.
 
   Version 1.7.1 change log:
   - Custom Split editor in Settings appears only when Custom Split is the active routine.
@@ -826,15 +835,19 @@ function sanitizeImportedState(o){
   });
   const logs={};
   Object.keys(o.logs).forEach(date=>{
+    if(!isValidISODate(date)) bad('Log date "'+date+'" is invalid.');
     const day=o.logs[date];
-    if(!isObj(day)) return;
+    if(!isObj(day)) bad('Logs for '+date+' must be an object.');
     const cleanDay={};
     Object.keys(day).forEach(exId=>{
       const rec=day[exId];
-      if(!isObj(rec)) return;
-      rec.sets=(Array.isArray(rec.sets)?rec.sets:[]).map(st=>isObj(st)?st:{w:'',r:''});
-      if(typeof rec.note!=='string') rec.note=rec.note==null?'':String(rec.note);
-      cleanDay[exId]=rec;
+      if(!isObj(rec)) bad('Log record for "'+exId+'" on '+date+' is invalid.');
+      if(rec.sets!==undefined&&!Array.isArray(rec.sets)) bad('Sets for "'+exId+'" on '+date+' must be a list.');
+      const sets=(rec.sets||[]).map((st,si)=>{
+        if(!isObj(st)) bad('Set '+(si+1)+' for "'+exId+'" on '+date+' is invalid.');
+        return {w:st.w??'',r:st.r??''};
+      });
+      cleanDay[exId]={sets,note:typeof rec.note==='string'?rec.note:rec.note==null?'':String(rec.note)};
     });
     logs[date]=cleanDay;
   });
@@ -959,7 +972,7 @@ function warn(){
     h += '<div class="warn">'+esc(loadProblem)+' <button class="btn small" data-act="dlrecovery" style="margin-top:6px">Download recovery copy</button></div>';
   }
   if(!storageOK){
-    h += '<div class="warn">Private mode or storage quota exceeded: data may not persist when closing the page.</div>';
+    h += '<div class="warn">Could not save workout data to this browser. Private mode or storage quota may be the cause. Export a backup now; recent changes may be lost.</div>';
   } else {
     try{
       const soft=new Blob([JSON.stringify(S.logs||{})]).size/(5*1024*1024)*100;
@@ -1038,7 +1051,7 @@ const dayIdx=d=>{
 
 const dayFor=d=>dayIdx(d);
 const now=new Date();
-const ui={tab:'home',date:iso(now),day:0,extra:{},homeMetric:'1rm',homeGraphType:T.homeGraphType||'line',progGraphType:T.progGraphType||'line',cm:{y:now.getFullYear(),m:now.getMonth()},overallShowAll:false,progShowAll:false,progTableAll:false,custEditDay:null};
+const ui={tab:'home',date:iso(now),day:0,dayOverrideDate:null,extra:{},homeMetric:'1rm',homeGraphType:T.homeGraphType||'line',progGraphType:T.progGraphType||'line',cm:{y:now.getFullYear(),m:now.getMonth()},overallShowAll:false,progShowAll:false,progTableAll:false,custEditDay:null};
 let lastRenderedTab=null;
 let lastRenderedDate=null;
 let lastRenderedDay=null;
@@ -2292,7 +2305,7 @@ function renderLogExercisesForDate(dStr){
 }
 
 function vLog(){
-  ui.day = dayFor(ui.date);
+  if(ui.dayOverrideDate!==ui.date) ui.day = dayFor(ui.date);
   return `
     <div id="log-header-container">${renderLogHeader(ui.date, ui.day)}</div>
     ${renderExLongpressTipHtml()}
@@ -2513,7 +2526,7 @@ function vSet(){
     <div id="bkmsg" class="meta" style="margin-top:6px"></div>
   </div>`;
 
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.7.1</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.7.2</div></div>`;
 
   return h;
 }
@@ -2531,14 +2544,14 @@ function hasExerciseHistory(record) {
 function findExIdByName(name) {
   const cleanName = String(name ?? '').trim();
   const normalized = cleanName.toLocaleLowerCase();
-  if (!cleanName) return 'ex_unknown';
+  if (!cleanName) return null;
   const allEx = [];
   Object.values(S.routines || {}).forEach(plan => (plan || []).forEach(day => (day.ex || []).forEach(ex => allEx.push(ex))));
-  const activeMatch = allEx.find(ex => String(ex.name || '').trim().toLocaleLowerCase() === normalized);
-  if (activeMatch) return activeMatch.id;
   const archived = S.archivedExercises || {};
-  const archivedMatch = Object.entries(archived).find(([, ex]) => String(ex?.name || '').trim().toLocaleLowerCase() === normalized);
-  if (archivedMatch) return archivedMatch[0];
+  const matches=[...allEx.filter(ex=>String(ex.name||'').trim().toLocaleLowerCase()===normalized).map(ex=>ex.id),
+    ...Object.entries(archived).filter(([,ex])=>String(ex?.name||'').trim().toLocaleLowerCase()===normalized).map(([id])=>id)];
+  const uniqueMatches=[...new Set(matches)];
+  if(uniqueMatches.length===1) return uniqueMatches[0];
 
   let base = 'imported_' + (cleanName.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48) || 'exercise');
   let id = base, suffix = 2;
@@ -2589,6 +2602,7 @@ function parseCSVLogs(text) {
     const rawReps = repsCol < 0 ? '' : String(parts[repsCol] ?? '').trim();
     const note = noteCol < 0 ? '' : String(parts[noteCol] ?? '');
     const exId = findExIdByName(exName);
+    if(!exId) return;
     if (!logs[date]) logs[date] = {};
     if (!logs[date][exId]) logs[date][exId] = {sets: [], note: ''};
     if (Number.isInteger(setNo) && setNo > 0 && setNo <= 100) {
@@ -2652,7 +2666,7 @@ function createTextBackup() {
       (rec.sets||[]).forEach((set,index)=>{
         if(set && (set.w!=='' || set.r!=='')) lines.push(`Set ${index+1}: ${set.w===''?'—':set.w} kg × ${set.r===''?'—':set.r} reps`);
       });
-      if(rec.note) lines.push(`Note: ${rec.note}`);
+      if(rec.note) lines.push(`Note JSON: ${JSON.stringify(rec.note)}`);
     });
   });
   lines.push(
@@ -2668,7 +2682,7 @@ function createTextBackup() {
 
 function parseTXTLogs(text) {
   const logs = {};
-  const dateBlocks = text.split(/DATE:\s*/i);
+  const dateBlocks = text.split(/(?:^|\r?\n)DATE:\s*/i);
   dateBlocks.forEach(block => {
     const lines = block.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     if (!lines.length) return;
@@ -2696,8 +2710,11 @@ function parseTXTLogs(text) {
           }
           logs[date][currentExId].sets[setIdx] = { w: weight, r: reps };
         }
-      } else if (currentExId && line.toLowerCase().startsWith('note:')) {
-        const note = line.replace(/note:/i, '').trim();
+      } else if (currentExId && (line.toLowerCase().startsWith('note json:') || line.toLowerCase().startsWith('note:'))) {
+        const encoded=line.toLowerCase().startsWith('note json:');
+        const rawNote = line.replace(encoded?/note json:/i:/note:/i, '').trim();
+        let note=rawNote;
+        if(encoded){ try{ const parsed=JSON.parse(rawNote); if(typeof parsed==='string') note=parsed; }catch(_){} }
         if (!logs[date]) logs[date] = {};
         if (!logs[date][currentExId]) logs[date][currentExId] = {sets: [], note: ''};
         logs[date][currentExId].note = note;
@@ -4074,6 +4091,7 @@ document.addEventListener('click', e => {
   }
   else if(a==='cal'){
     ui.date = safeDate(v, ui.date);
+    ui.dayOverrideDate = null;
     ui.tab = 'today';
     ui.day = dayFor(ui.date);
     render();
@@ -4083,19 +4101,28 @@ document.addEventListener('click', e => {
     let d = new Date(base + 'T00:00');
     d.setDate(d.getDate() + parseInt(v, 10));
     ui.date = iso(d);
+    ui.dayOverrideDate = null;
     ui.day = dayFor(ui.date);
     render();
   }
   else if(a==='today'){
     ui.date = iso(new Date());
+    ui.dayOverrideDate = null;
     ui.day = dayFor(ui.date);
     render();
   }
   else if(a==='day'){
-    const target = dateForDayIdx(parseInt(v, 10), ui.date);
+    const idx=parseInt(v,10);
+    const target = dateForDayIdx(idx, ui.date);
     if(target && target !== ui.date){
       ui.date = target;
+      ui.dayOverrideDate = null;
       ui.day = dayFor(ui.date);
+      render();
+    } else if(Number.isInteger(idx) && idx>=0 && idx<getPlan().length){
+      // Extra custom days have no weekday slot; let the user log them for the selected date.
+      ui.day=idx;
+      ui.dayOverrideDate=ui.date;
       render();
     }
   }
@@ -4140,13 +4167,18 @@ document.addEventListener('click', e => {
     if(currentN <= 1) return;
     haptic(10);
     const nextN = currentN - 1;
-    ui.extra[setCountKey(id, ui.date)] = nextN;
-    // Truncate any trailing logged set slots beyond the new visible count
-    if(S.logs[ui.date] && S.logs[ui.date][id] && Array.isArray(S.logs[ui.date][id].sets) && S.logs[ui.date][id].sets.length > nextN){
-      S.logs[ui.date][id].sets = S.logs[ui.date][id].sets.slice(0, nextN);
-      saveState(0);
-    }
-    animateRemoveSetRow(id, nextN);
+    const remove=()=>{
+      ui.extra[setCountKey(id, ui.date)] = nextN;
+      if(S.logs[ui.date] && S.logs[ui.date][id] && Array.isArray(S.logs[ui.date][id].sets) && S.logs[ui.date][id].sets.length > nextN){
+        S.logs[ui.date][id].sets = S.logs[ui.date][id].sets.slice(0, nextN);
+        saveState(0);
+      }
+      animateRemoveSetRow(id, nextN);
+    };
+    const trailing=rec.sets&&rec.sets[currentN-1];
+    if(trailing && (trailing.w!==''&&trailing.w!=null || trailing.r!==''&&trailing.r!=null)){
+      showAppConfirm({title:'Remove completed set?',message:'This set has logged values. Removing it will delete those values from this workout.',confirmLabel:'Remove set',danger:true,onConfirm:remove});
+    } else remove();
   }
   else if(a==='renameexercise'){
     startRenameExercise(id);
@@ -4342,6 +4374,7 @@ document.addEventListener('change', e => {
     const candidate = e.target.value;
     if(isValidISODate(candidate)){
       ui.date = candidate;
+      ui.dayOverrideDate = null;
       ui.day = dayFor(ui.date);
       render();
     } else {
@@ -4468,6 +4501,10 @@ window.onload = function(){
 };
 
 document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible' && targetEndTime > 0){
+    if(timerInterval){ cancelAnimationFrame(timerInterval); timerInterval=null; }
+    timerFrameLoop();
+  }
   if(document.visibilityState === 'hidden'){
     if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; saveStateImmediate(); }
   }
@@ -4482,4 +4519,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.7.1 -->
+</html><!-- END OF FILE — Lift Log version 1.7.2 -->
