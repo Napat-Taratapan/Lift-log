@@ -1,6 +1,19 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.11.3
+  Current version: 1.11.6
+  Version 1.11.6 change log:
+  - Replace remaining native prompts, confirmations, and alerts with in-app dialogs for Home Screen reliability.
+  - Map unnamed Custom Split days to the weekdays not already explicitly named.
+  - Preserve exercise IDs and resolve names across all routines in CSV exports and imports.
+  - Fix the malformed upward-arrow paths in both New PR icons.
+
+  Version 1.11.5 change log:
+  - Keep workout-save warnings accurate when updating backup reminder metadata.
+  - Count a TXT backup only after the user confirms the downloaded file was saved.
+
+  Version 1.11.4 change log:
+  - Add an optional Home reminder when no full backup has been exported within the selected number of days.
+
   Version 1.11.3 change log:
   - Add explicit opaque Apple home-screen and sized browser icons to improve iPhone icon loading.
 
@@ -132,8 +145,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Lift Log">
 <meta name="theme-color" content="#141413">
-<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.11.3">
-<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.11.3">
+<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.11.6">
+<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.11.6">
 <title>Lift Log - Workout & Progress Tracker</title>
 <style>
 :root{
@@ -798,7 +811,8 @@ function haptic(ms=10) { if(navigator.vibrate) navigator.vibrate(ms); }
 const KEY='liftlog_v2', TKEY='liftlog_theme_v2';
 const BACKUP_KEY = KEY + '_backup';
 const RECOVERY_KEY = KEY + '_corrupt';
-const DEFT={bg:'#141413',card:'#1e1e1c',acc:'#ff8a4c',ink:'#efefea',up:'#37b24d',down:'#f03e3e',heatTrain:'#ff8a4c',heatRest:'#5c7cfa',glass:false,restTimerMin:3,restSuggestions:false,focusMode:false,homeGraphType:'line',progGraphType:'line',alarmType:'beep',customAlarmData:''};
+const LAST_BACKUP_KEY = 'liftlog_last_full_backup_v1';
+const DEFT={bg:'#141413',card:'#1e1e1c',acc:'#ff8a4c',ink:'#efefea',up:'#37b24d',down:'#f03e3e',heatTrain:'#ff8a4c',heatRest:'#5c7cfa',glass:false,restTimerMin:3,restSuggestions:false,focusMode:false,homeGraphType:'line',progGraphType:'line',alarmType:'beep',customAlarmData:'',backupReminder:false,backupReminderDays:30};
 function safeStorageGet(key){
   try{ return localStorage.getItem(key); }catch(_){ storageOK=false; return null; }
 }
@@ -1046,6 +1060,9 @@ function cleanTheme(t){
   out.glass = !!t.glass;
   out.restSuggestions = !!t.restSuggestions;
   out.focusMode = !!t.focusMode;
+  out.backupReminder = !!t.backupReminder;
+  const backupDays = Math.round(Number(t.backupReminderDays));
+  if(Number.isFinite(backupDays) && backupDays>=1 && backupDays<=365) out.backupReminderDays = backupDays;
   const m = Number(t.restTimerMin);
   if(Number.isFinite(m) && m>0 && m<=60) out.restTimerMin = m;
   if(t.homeGraphType==='line'||t.homeGraphType==='bar') out.homeGraphType = t.homeGraphType;
@@ -1220,13 +1237,19 @@ const dayIdx=d=>{
   const plan = getPlan();
   let idx = plan.findIndex(p=>p.name.toLowerCase().includes(dayName));
   if (idx !== -1) return idx;
-  
-  const namesWeekdays = plan.some(p => WD.some(n => p.name.toLowerCase().includes(n.toLowerCase())));
-  if (namesWeekdays) return -1;
-  
-  let dow = dt.getDay();
-  let fallback = dow === 0 ? 6 : dow - 1;
-  return fallback < plan.length ? fallback : -1;
+
+  const mondayFirstDays=[1,2,3,4,5,6,0];
+  const namedWeekdays=new Set();
+  const isNamedDay=day=>WD.some(name=>day.name.toLowerCase().includes(name.toLowerCase()));
+  plan.forEach(day=>{
+    WD.forEach((name,weekday)=>{
+      if(day.name.toLowerCase().includes(name.toLowerCase())) namedWeekdays.add(weekday);
+    });
+  });
+  const unnamedIndices=plan.map((day,index)=>isNamedDay(day)?-1:index).filter(index=>index>=0);
+  const remainingWeekdays=mondayFirstDays.filter(weekday=>!namedWeekdays.has(weekday));
+  const fallbackIndex=remainingWeekdays.indexOf(dt.getDay());
+  return fallbackIndex>=0&&fallbackIndex<unnamedIndices.length?unnamedIndices[fallbackIndex]:-1;
 };
 
 const dayFor=d=>dayIdx(d);
@@ -1481,6 +1504,16 @@ function exList(){
       o.push({...e,id,day:'Archived exercise'});
   });
   return o;
+}
+
+function exerciseNameById(id){
+  for(const plan of Object.values(S.routines||{})){
+    for(const day of plan||[]){
+      const ex=(day.ex||[]).find(item=>item.id===id);
+      if(ex&&ex.name) return ex.name;
+    }
+  }
+  return S.archivedExercises&&S.archivedExercises[id]&&S.archivedExercises[id].name || id;
 }
 
 function pruneArchivedExercises(){
@@ -1791,11 +1824,17 @@ function timerRunRefill(toSecs){
 }
 
 function promptCustomTimer(){
-  const input = prompt("Enter timer duration in minutes (e.g. 1.5 for 1 min 30 sec):", (T.restTimerMin || 3));
-  if(input !== null){
-    const minutes = parseFloat(input);
-    if(!isNaN(minutes) && minutes > 0) startTimer(minutes * 60);
-  }
+  showAppPrompt({
+    title:'Custom rest timer',
+    message:'Enter a duration in minutes. You can use decimals, such as 1.5 for 1 minute 30 seconds.',
+    fields:[{label:'Minutes',type:'number',value:T.restTimerMin||3,min:'0.1',step:'0.1'}],
+    confirmLabel:'Start timer',
+    onSubmit:values=>{
+      const minutes=Number(values[0]);
+      if(Number.isFinite(minutes)&&minutes>0) startTimer(minutes*60);
+      else showAppAlert('Enter a timer duration greater than zero.');
+    }
+  });
 }
 
 function timerCurFrac(){
@@ -1959,7 +1998,7 @@ function showPRModal(w, r, rm){
   document.getElementById('pr-modal-box').innerHTML = `
     <div class="pr-modal-overlay" onclick="this.remove()">
       <div class="pr-modal">
-        <h2><svg class="svg-icon" style="width:28px;height:28px;color:var(--acc)" viewBox="0 0 24 24"><path d="M6 9EB 12 3 18 9"/><path d="M12 3V21"/></svg> NEW PR RECORD!</h2>
+        <h2><svg class="svg-icon" style="width:28px;height:28px;color:var(--acc)" viewBox="0 0 24 24"><path d="M6 9 L 12 3 L 18 9"/><path d="M12 3V21"/></svg> NEW PR RECORD!</h2>
         <p><b>${w} kg × ${r} reps</b></p>
         <p>Est. 1RM Strength: <b>${rm} kg</b></p>
         <button class="btn acc" style="margin-top:14px;width:100%" onclick="this.closest('.pr-modal-overlay').remove()">KEEP LIFTING!</button>
@@ -2209,10 +2248,32 @@ function sparkSvg(pts){
   return `<svg viewBox="0 0 ${W} ${H}" aria-hidden="true"><polyline points="${P.join(' ')}" fill="none" style="stroke:var(--up)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${e[0]}" cy="${e[1]}" r="2.6" style="fill:var(--up)"/></svg>`;
 }
 
+function getLastFullBackupDate(){
+  try{const value=safeStorageGet(LAST_BACKUP_KEY);return isValidISODate(value)?value:null;}catch(_){return null;}
+}
+function markFullBackupDate(){
+  const date=iso(new Date());
+  try{localStorage.setItem(LAST_BACKUP_KEY,date);}catch(_){return false;}
+  const status=document.getElementById('backup-reminder-status');
+  if(status) status.textContent='Last backup export: '+fmt(date);
+  return true;
+}
+
 function vHome(){
   const today=iso(new Date()), plan=getPlan(), idx=dayIdx(today), d=idx>=0?plan[idx]:null;
   const streak=calcStreak(), mon=mondayOf(today);
   let i=0; const step=()=>` style="--i:${i++}"`;
+
+  let backupReminder='';
+  if(T.backupReminder){
+    const lastBackup=getLastFullBackupDate();
+    const lastDate=lastBackup?new Date(lastBackup+'T00:00:00'):null;
+    const todayDate=new Date(today+'T00:00:00');
+    const daysSince=lastDate?Math.max(0,Math.floor((todayDate-lastDate)/864e5)):null;
+    if(daysSince===null||daysSince>=T.backupReminderDays){
+      backupReminder=`<div class="warn"${step()} style="display:flex;align-items:center;justify-content:space-between;gap:8px"><span>${daysSince===null?'Make your first backup export to protect your workout history.':'It’s been '+daysSince+' days since your last backup export.'}</span><button class="btn small" data-act="go" data-v="set">Back up</button></div>`;
+    }
+  }
 
   let card;
   if(d&&d.ex.length){
@@ -2271,7 +2332,7 @@ function vHome(){
 
   const sessions=exerciseSessions();
   const prs=recentPRs(sessions,3);
-  const prHtml=prs.length?prs.map(x=>`<div class="pr-row"><span style="font-size:20px;color:var(--acc)"><svg class="svg-icon" style="width:22px;height:22px" viewBox="0 0 24 24"><path d="M6 9EB 12 3 18 9"/><path d="M12 3V21"/></svg></span><div><b>${esc(x.name)}</b><small>${esc(String(x.w))} kg × ${esc(String(x.r))} · ${relDays(x.date,today)}</small></div><div class="md">~${Math.round(x.rm)} kg</div></div>`).join(''):'<div class="meta" style="padding:6px 0">No PRs yet. Beat an earlier session to set one!</div>';
+  const prHtml=prs.length?prs.map(x=>`<div class="pr-row"><span style="font-size:20px;color:var(--acc)"><svg class="svg-icon" style="width:22px;height:22px" viewBox="0 0 24 24"><path d="M6 9 L 12 3 L 18 9"/><path d="M12 3V21"/></svg></span><div><b>${esc(x.name)}</b><small>${esc(String(x.w))} kg × ${esc(String(x.r))} · ${relDays(x.date,today)}</small></div><div class="md">~${Math.round(x.rm)} kg</div></div>`).join(''):'<div class="meta" style="padding:6px 0">No PRs yet. Beat an earlier session to set one!</div>';
 
   const start=addDays(mon,-77); let hm='', maxV=0, cnt=0; const cells=[];
   for(let k=0;k<84;k++){ const ds=addDays(start,k), v=dayVolume(ds), w=dayHasWork(ds); if(w&&ds<=today) cnt++; if(v>maxV) maxV=v; cells.push({ds,v,w}); }
@@ -2295,6 +2356,7 @@ function vHome(){
   return `<div class="dash">
     <div class="hero"${step()}><div class="logo">Lift Log</div><div class="sub">${esc(fmt(today))} · ${esc(S.activeRoutine.toUpperCase())} routine</div></div>
     ${card}
+    ${backupReminder}
     <div class="wk"${step()}>${wk}</div>
     ${tiles}
     <div class="card"${step()}><h3><span>Recent PRs</span></h3><div style="margin-top:6px">${prHtml}</div></div>
@@ -2790,6 +2852,8 @@ function chart(ds,v,type,unit='kg'){
 
 function vSet(){
   const rows=[['bg','Background'],['card','Main (cards)'],['acc','Accent Highlight'],['ink','Text Color'],['up','Trend Up (Green)'],['down','Trend Down (Red)']];
+  const lastBackup=getLastFullBackupDate();
+  const lastBackupLabel=lastBackup?fmt(lastBackup):'No full backup export recorded yet';
   
   let storageBytes = 0;
   try {
@@ -2844,6 +2908,14 @@ function vSet(){
     </div>
   </div>`;
 
+  h+=`<div class="card">
+    <h3>Backup Reminder</h3>
+    <div class="cr" style="margin-top:6px"><label for="s_backup_reminder">Remind me on Home</label><input type="checkbox" id="s_backup_reminder" ${T.backupReminder?'checked':''}></div>
+    <div class="cr"><label for="s_backup_days">Remind after (days)</label><input type="number" id="s_backup_days" min="1" max="365" step="1" value="${T.backupReminderDays}" ${T.backupReminder?'':'disabled'} style="max-width:90px;font-size:14px;padding:6px;text-align:center"></div>
+    <div class="meta">A small Home reminder appears when this many days pass without a full JSON or TXT backup export. It starts disabled.</div>
+    <div class="meta" id="backup-reminder-status" style="margin-top:6px">Last backup export: ${esc(lastBackupLabel)}</div>
+  </div>`;
+
   h+='<div class="card"><h3>Storage & Data</h3>'+
     `<div class="meta" style="margin-top:6px">History Log Size: <b>${storageKB} KB</b> (${storagePct}% of ~5MB quota)</div>`+
     `<div style="width:100%;background:var(--bg);height:8px;border-radius:4px;overflow:hidden;margin:8px 0;border:1px solid var(--line)"><div style="width:${Math.max(2, storagePct)}%;background:${storagePct>80?'var(--down)':(storagePct>=PERF.storageSoftPct?'var(--acc)':'var(--acc)')};height:100%"></div></div>`+
@@ -2890,7 +2962,7 @@ function vSet(){
   </div>`;
 
   h+='<div class="card"><h3>App updates</h3><div class="meta" style="margin:6px 0 10px">See what changed in each version.</div><button type="button" class="btn small acc" data-act="whatsnew">What’s New</button></div>';
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.11.3</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.11.6</div></div>`;
 
   return h;
 }
@@ -2953,7 +3025,7 @@ function parseCSVLogs(text) {
   if (rows.length < 2) return logs;
   const header = rows[0].map(v => String(v).trim().toLowerCase());
   const col = name => header.indexOf(name);
-  const dateCol = col('date'), exCol = col('exercise'), setCol = col('set'), weightCol = col('weight'), repsCol = col('reps'), noteCol = col('note'), unitCol = col('unit');
+  const dateCol = col('date'), exCol = col('exercise'), exIdCol = col('exercise id'), setCol = col('set'), weightCol = col('weight'), repsCol = col('reps'), noteCol = col('note'), unitCol = col('unit');
   if (dateCol < 0 || exCol < 0) throw new Error('CSV must contain Date and Exercise columns.');
   rows.slice(1).forEach(parts => {
     if (!parts.some(v => String(v).trim() !== '')) return;
@@ -2966,7 +3038,12 @@ function parseCSVLogs(text) {
     const inputUnit = unitCol >= 0 && String(parts[unitCol] ?? '').trim().toLowerCase()==='lbs' ? 'lbs' : 'kg';
     const rawReps = repsCol < 0 ? '' : String(parts[repsCol] ?? '').trim();
     const note = noteCol < 0 ? '' : String(parts[noteCol] ?? '');
-    const exId = findExIdByName(exName);
+    const importedId=exIdCol<0?'':String(parts[exIdCol]??'').trim();
+    let exId=importedId||findExIdByName(exName);
+    if(importedId && !Object.values(S.routines||{}).some(plan=>(plan||[]).some(day=>(day.ex||[]).some(ex=>ex.id===importedId))) && !S.archivedExercises?.[importedId]){
+      if(!S.archivedExercises) S.archivedExercises={};
+      S.archivedExercises[importedId]={name:exName,sets:3,range:'8-12'};
+    }
     if(!exId) return;
     if (!logs[date]) logs[date] = {};
     if (!logs[date][exId]) logs[date][exId] = {sets: [], note: ''};
@@ -3825,8 +3902,7 @@ function commitRenameFromInput(input){
     input.value = name;
   };
   if(!clean){
-    alert('Please enter an exercise name.');
-    input.focus();
+    showAppAlert('Please enter an exercise name.',()=>input.focus());
     return;
   }
   if(normName(clean) === normName(previous)){
@@ -3836,14 +3912,12 @@ function commitRenameFromInput(input){
   const plan = getPlan();
   const day = plan[ui.day];
   if(day && day.ex && day.ex.some(item => item.id !== id && normName(item.name) === normName(clean))){
-    alert('That name is already used by another exercise on this workout day.');
-    input.focus();
+    showAppAlert('That name is already used by another exercise on this workout day.',()=>input.focus());
     return;
   }
   const result = renameExerciseEverywhere(id, clean);
   if(!result.ok){
-    alert('Could not rename the exercise.');
-    input.focus();
+    showAppAlert('Could not rename the exercise.',()=>input.focus());
     return;
   }
   invalidateDerived();
@@ -3924,6 +3998,33 @@ function showAppConfirm({ title, message, confirmLabel, danger, onConfirm }){
   document.body.appendChild(root);
   const okBtn = root.querySelector('[data-ac="ok"]');
   if(okBtn) setTimeout(()=>okBtn.focus(), 30);
+}
+
+function showAppAlert(message, onClose){
+  const prev=document.getElementById('app-alert-root');if(prev)prev.remove();
+  const root=document.createElement('div');root.id='app-alert-root';root.className='app-confirm-overlay';root.setAttribute('role','alertdialog');root.setAttribute('aria-modal','true');
+  root.innerHTML='<div class="app-confirm-card"><p>'+esc(message||'')+'</p><div class="app-confirm-actions"><button type="button" class="btn acc" data-alert="ok">OK</button></div></div>';
+  const finish=()=>{root.remove();document.removeEventListener('keydown',onKey);if(typeof onClose==='function')onClose();};
+  const onKey=e=>{if(e.key==='Escape'||e.key==='Enter'){e.preventDefault();finish();}};
+  root.addEventListener('click',e=>{if(e.target===root||e.target.closest('[data-alert]'))finish();});
+  document.addEventListener('keydown',onKey);document.body.appendChild(root);
+  const ok=root.querySelector('[data-alert]');if(ok)setTimeout(()=>ok.focus(),30);
+}
+
+function showAppPrompt({title,message,fields,confirmLabel='Save',onSubmit}){
+  const prev=document.getElementById('app-prompt-root');if(prev)prev.remove();
+  const root=document.createElement('div');root.id='app-prompt-root';root.className='app-confirm-overlay';root.setAttribute('role','dialog');root.setAttribute('aria-modal','true');
+  const fieldHtml=(fields||[]).map((field,index)=>'<label style="display:block;margin:10px 0 4px;font-size:13px;color:var(--mute)" for="app-prompt-field-'+index+'">'+esc(field.label||'')+'</label><input id="app-prompt-field-'+index+'" type="'+esc(field.type||'text')+'" value="'+esc(field.value??'')+'" placeholder="'+esc(field.placeholder||'')+'"'+(field.min!==undefined?' min="'+esc(field.min)+'"':'')+(field.max!==undefined?' max="'+esc(field.max)+'"':'')+(field.step!==undefined?' step="'+esc(field.step)+'"':'')+' style="width:100%">').join('');
+  root.innerHTML='<div class="app-confirm-card"><h2>'+esc(title||'Enter details')+'</h2>'+(message?'<p>'+esc(message)+'</p>':'')+'<div>'+fieldHtml+'</div><div class="app-confirm-actions" style="margin-top:16px"><button type="button" class="btn" data-prompt="cancel">Cancel</button><button type="button" class="btn acc" data-prompt="ok">'+esc(confirmLabel)+'</button></div></div>';
+  const finish=(submit)=>{
+    const values=(fields||[]).map((_,index)=>root.querySelector('#app-prompt-field-'+index)?.value??'');
+    root.remove();document.removeEventListener('keydown',onKey);
+    if(submit&&typeof onSubmit==='function')onSubmit(values);
+  };
+  const onKey=e=>{if(e.key==='Escape'){e.preventDefault();finish(false);}else if(e.key==='Enter'&&e.target.tagName!=='TEXTAREA'){e.preventDefault();finish(true);}};
+  root.addEventListener('click',e=>{if(e.target===root)finish(false);const button=e.target.closest('[data-prompt]');if(button)finish(button.getAttribute('data-prompt')==='ok');});
+  document.addEventListener('keydown',onKey);document.body.appendChild(root);
+  const first=root.querySelector('input');if(first)setTimeout(()=>first.focus(),30);else root.querySelector('[data-prompt="ok"]')?.focus();
 }
 
 function performRemoveExercise(id){
@@ -4323,12 +4424,12 @@ document.addEventListener('click', e => {
     }
   }
   else if(a==='clearhistory'){
-    if(confirm('Are you sure you want to delete all logged workout history? This action cannot be undone.')){
-      S.logs = {};
-      if(S.archivedExercises) delete S.archivedExercises;
-      saveState(0);
-      render();
-    }
+    showAppConfirm({
+      title:'Delete workout history?',
+      message:'This permanently deletes all logged workout history. This action cannot be undone.',
+      confirmLabel:'Delete history',danger:true,
+      onConfirm:()=>{S.logs={};if(S.archivedExercises)delete S.archivedExercises;saveState(0);render();}
+    });
   }
   else if(a==='setroutine'){
     S.activeRoutine = v;
@@ -4407,23 +4508,27 @@ document.addEventListener('click', e => {
     const di = parseInt(btn.getAttribute('data-di'), 10);
     const plan = getCustomPlan();
     if(di<0 || di>=plan.length) return;
-    const name = prompt('Exercise name:');
-    if(name === null) return;
-    const clean = name.trim();
-    if(!clean){ alert('Please enter an exercise name.'); return; }
-    if((plan[di].ex||[]).some(e=>e.name.toLowerCase()===clean.toLowerCase())){
-      alert('That exercise is already on this day.'); return;
-    }
-    const setsIn = prompt('Working sets?', '3');
-    if(setsIn === null) return;
-    const sets = parseInt(setsIn, 10);
-    if(!Number.isInteger(sets) || sets<1 || sets>20){ alert('Enter sets from 1 to 20.'); return; }
-    const rangeIn = prompt('Rep range (e.g. 8-12):', '8-12');
-    if(rangeIn === null) return;
-    if(!plan[di].ex) plan[di].ex = [];
-    plan[di].ex.push(newCustomExercise(clean, sets, rangeIn.trim()||'8-12'));
-    saveState(0);
-    render(true);
+    showAppPrompt({
+      title:'Add exercise to Custom Split',
+      fields:[
+        {label:'Exercise name',value:'',placeholder:'Exercise name'},
+        {label:'Working sets',type:'number',value:3,min:1,max:20,step:1},
+        {label:'Rep range',value:'8-12',placeholder:'8-12'}
+      ],
+      confirmLabel:'Add exercise',
+      onSubmit:values=>{
+        const clean=String(values[0]||'').trim();
+        const sets=Number(values[1]);
+        const range=String(values[2]||'').trim()||'8-12';
+        if(!clean){showAppAlert('Please enter an exercise name.');return;}
+        if((plan[di].ex||[]).some(e=>e.name.toLowerCase()===clean.toLowerCase())){showAppAlert('That exercise is already on this day.');return;}
+        if(!Number.isInteger(sets)||sets<1||sets>20){showAppAlert('Enter sets from 1 to 20.');return;}
+        if(!plan[di].ex) plan[di].ex=[];
+        plan[di].ex.push(newCustomExercise(clean,sets,range));
+        saveState(0);
+        render(true);
+      }
+    });
   }
   else if(a==='cust-del-ex'){
     const di = parseInt(btn.getAttribute('data-di'), 10);
@@ -4512,19 +4617,20 @@ document.addEventListener('click', e => {
     const input=document.getElementById('trim-before');
     const before=input&&input.value;
     if(!isValidISODate(before)){
-      alert('Choose a valid date first. All logs strictly before that date will be deleted.');
+      showAppAlert('Choose a valid date first. All logs strictly before that date will be deleted.');
       return;
     }
-    if(!confirm('Export a backup first if you have not already.\n\nPermanently delete all workout logs before '+before+'?\nLogs on or after that date are kept.')) return;
-    let removed=0;
-    Object.keys(S.logs||{}).forEach(d=>{
-      if(d<before){ delete S.logs[d]; removed++; }
+    showAppConfirm({
+      title:'Delete older workout logs?',
+      message:'Export a backup first if you have not already. Permanently delete all workout logs before '+before+'? Logs on or after that date will be kept.',
+      confirmLabel:'Delete old logs',danger:true,
+      onConfirm:()=>{
+        let removed=0;
+        Object.keys(S.logs||{}).forEach(d=>{if(d<before){delete S.logs[d];removed++;}});
+        pruneArchivedExercises();invalidateDerived();saveState(0);render();
+        showAppAlert(removed?'Removed logs from '+removed+' day(s).':'No logs were before that date.');
+      }
     });
-    pruneArchivedExercises();
-    invalidateDerived();
-    saveState(0);
-    alert(removed?('Removed logs from '+removed+' day(s).'):'No logs were before that date.');
-    render();
   }
   else if(a==='cm'){
     let m = ui.cm.m + parseInt(v, 10);
@@ -4572,27 +4678,28 @@ document.addEventListener('click', e => {
     }
   }
   else if(a==='addexercise'){
-    if(!getPlan()[ui.day]){alert('This date is a rest day with no workout in your routine, so there is nowhere to add an exercise. Open a scheduled workout day and add it there.');return;}
-    const name=prompt('Exercise name to add to this workout day:');
-    if(name!==null){
-      const clean=name.trim();
-      if(!clean){alert('Please enter an exercise name.');return;}
-      const day=getPlan()[ui.day];
-      if(!day){alert('This date is a rest day with no workout in your routine, so there is nowhere to add the exercise. Open a scheduled workout day and add it there.');return;}
-      if(day.ex.some(ex=>ex.name.toLowerCase()===clean.toLowerCase())){
-        alert('That exercise is already in this workout.');return;
+    const day=getPlan()[ui.day];
+    if(!day){showAppAlert('This date is a rest day with no workout in your routine, so there is nowhere to add an exercise. Open a scheduled workout day and add it there.');return;}
+    showAppPrompt({
+      title:'Add exercise to workout',
+      fields:[
+        {label:'Exercise name',value:'',placeholder:'Exercise name'},
+        {label:'Working sets',type:'number',value:3,min:1,max:20,step:1},
+        {label:'Target rep range',value:'8-12',placeholder:'8-12'}
+      ],
+      confirmLabel:'Add exercise',
+      onSubmit:values=>{
+        const clean=String(values[0]||'').trim();
+        const sets=Number(values[1]);
+        const cleanRange=String(values[2]||'').trim()||'8-12';
+        if(!clean){showAppAlert('Please enter an exercise name.');return;}
+        if(day.ex.some(ex=>ex.name.toLowerCase()===clean.toLowerCase())){showAppAlert('That exercise is already in this workout.');return;}
+        if(!Number.isInteger(sets)||sets<1||sets>20){showAppAlert('Enter a number of sets from 1 to 20.');return;}
+        day.ex.push({id:'custom_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),name:clean,sets,range:cleanRange});
+        saveState(0);
+        render();
       }
-      const setsInput=prompt('How many working sets?','3');
-      if(setsInput===null)return;
-      const sets=parseInt(setsInput,10);
-      if(!Number.isInteger(sets)||sets<1||sets>20){alert('Enter a number of sets from 1 to 20.');return;}
-      const range=prompt('Target rep range (e.g. 8-12):','8-12');
-      if(range===null)return;
-      const cleanRange=range.trim()||'8-12';
-      day.ex.push({id:'custom_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),name:clean,sets,range:cleanRange});
-      saveState(0);
-      render();
-    }
+    });
   }
   else if(a==='removeexercise'){
     performRemoveExercise(id);
@@ -4650,8 +4757,9 @@ document.addEventListener('click', e => {
   else if(a==='copy'){
     const t = document.getElementById('bk');
     t.select();
-    document.execCommand('copy');
-    document.getElementById('bkmsg').textContent = 'Copied JSON to clipboard!';
+    const copied=document.execCommand('copy');
+    document.getElementById('bkmsg').textContent = copied ? 'Copied JSON backup to clipboard!' : 'Copy failed. Select and copy the JSON manually.';
+    if(copied) markFullBackupDate();
   }
   else if(a==='restore'){
     try{
@@ -4665,32 +4773,35 @@ document.addEventListener('click', e => {
   else if(a==='dlrecovery'){
     let raw=null; try{ raw=safeStorageGet(RECOVERY_KEY); }catch(_){ }
     if(raw) downloadTextFile(raw, exportFileName('rec','json'), 'application/json');
-    else alert('No recovery copy was found in this browser.');
+    else showAppAlert('No recovery copy was found in this browser.');
   }
   else if(a==='droprecovery'){
-    if(confirm('Delete the recovery copy of the unreadable data? This cannot be undone.')){
-      try{ safeStorageRemove(RECOVERY_KEY); }catch(_){}
-      loadProblem=null;
-      render();
-    }
+    showAppConfirm({
+      title:'Delete recovery copy?',
+      message:'Delete the recovery copy of the unreadable data? This cannot be undone.',
+      confirmLabel:'Delete copy',danger:true,
+      onConfirm:()=>{safeStorageRemove(RECOVERY_KEY);loadProblem=null;render();}
+    });
   }
   else if(a==='exptxt'){
     const name=exportFileName('bak','txt');
     downloadTextFile(createTextBackup(), name);
-    document.getElementById('bkmsg').textContent=`TXT backup exported (${name}). You can read it directly or import it later to restore your data.`;
+    document.getElementById('bkmsg').innerHTML=`TXT backup download started (${esc(name)}). After saving it to Files, confirm here: <button type="button" class="btn small" data-act="confirm-backup-export">I saved it</button>`;
+  }
+  else if(a==='confirm-backup-export'){
+    const recorded=markFullBackupDate();
+    document.getElementById('bkmsg').textContent=recorded?'Backup saved and reminder reset.':'Backup saved, but the reminder date could not be stored in this browser.';
   }
   else if(a==='expcsv'){
-    const rows=[['Date','Exercise','Set','Weight','Reps','Note','Unit']];
-    const allEx=exList();
+    const rows=[['Date','Exercise','Exercise ID','Set','Weight','Reps','Note','Unit']];
     Object.keys(S.logs||{}).sort().forEach(d=>{
       Object.keys(S.logs[d]||{}).forEach(exId=>{
         const r=S.logs[d][exId]||{};
-        const exItem=allEx.find(x=>x.id===exId);
-        const exName=exItem?exItem.name:(S.archivedExercises?.[exId]?.name||exId);
+        const exName=exerciseNameById(exId);
         const sets=Array.isArray(r.sets)?r.sets:[];
         const unit=unitForExercise(exId);
-        if(!sets.length){ rows.push([d,exName,'','','',r.note||'',unit]); return; }
-        sets.forEach((set,idx)=>rows.push([d,exName,idx+1,set?.w===''||set?.w==null?'':formatExerciseWeight(exId,set.w),set?.r ?? '',r.note||'',unit]));
+        if(!sets.length){ rows.push([d,exName,exId,'','','','',unit]); return; }
+        sets.forEach((set,idx)=>rows.push([d,exName,exId,idx+1,set?.w===''||set?.w==null?'':formatExerciseWeight(exId,set.w),set?.r ?? '',r.note||'',unit]));
       });
     });
     const csv=rows.map(row=>row.map(csvEscape).join(',')).join('\r\n')+'\r\n';
@@ -4827,7 +4938,18 @@ document.addEventListener('change', e => {
       else { plan[di].ex[ei].range = e.target.value.trim(); saveState(0); }
     }
   }
-  if(e.target.id === 'date'){
+  if(e.target.id === 's_backup_reminder'){
+    T.backupReminder=e.target.checked;
+    const daysInput=document.getElementById('s_backup_days');
+    if(daysInput) daysInput.disabled=!T.backupReminder;
+    saveTheme();
+  }
+  else if(e.target.id === 's_backup_days'){
+    const days=Math.round(Number(e.target.value));
+    if(Number.isFinite(days)&&days>=1&&days<=365){T.backupReminderDays=days;saveTheme();}
+    else e.target.value=T.backupReminderDays;
+  }
+  else if(e.target.id === 'date'){
     const candidate = e.target.value;
     if(isValidISODate(candidate)){
       ui.date = candidate;
@@ -4885,7 +5007,7 @@ document.addEventListener('change', e => {
     const file = e.target.files[0];
     if(!file) return;
     if(file.size > 500 * 1024) {
-      alert('File too large! Please choose a sound under 500KB to ensure smooth backups.');
+      showAppAlert('File too large! Please choose a sound under 500KB to ensure smooth backups.');
       e.target.value = '';
       return;
     }
@@ -4894,8 +5016,8 @@ document.addEventListener('change', e => {
       const prevSound = T.customAlarmData;
       T.customAlarmData = evt.target.result;
       _customAudioEl = null;
-      if(saveTheme()) alert('Custom sound saved!');
-      else { T.customAlarmData = prevSound; alert('Could not save the sound: browser storage is full. Try a smaller file.'); }
+      if(saveTheme()) showAppAlert('Custom sound saved!');
+      else { T.customAlarmData = prevSound; showAppAlert('Could not save the sound: browser storage is full. Try a smaller file.'); }
     };
     reader.readAsDataURL(file);
   }
@@ -4926,11 +5048,11 @@ document.addEventListener('change', e => {
         saveState(0);
         render();
         document.getElementById('bkmsg').textContent = 'Data imported successfully!';
-        alert('Data imported successfully!');
+        showAppAlert('Data imported successfully!');
       }catch(err){
         console.error(err);
         document.getElementById('bkmsg').textContent = 'Import failed: ' + (err.message || 'could not parse file.');
-        alert('Import failed: ' + (err.message || 'could not parse file.'));
+        showAppAlert('Import failed: ' + (err.message || 'could not parse file.'));
       }
       e.target.value = '';
     };
@@ -4986,4 +5108,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.8.3 -->
+</html><!-- END OF FILE — Lift Log version 1.11.6 -->
