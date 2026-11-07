@@ -1,6 +1,12 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.12.4
+  Current version: 1.12.6
+  Version 1.12.6 change log:
+  - Refine pull-to-refresh with a text-free ring, screen movement, and increasing pull resistance.
+
+  Version 1.12.5 change log:
+  - Sync the Home workout progress ring with per-session set-count changes.
+
   Version 1.12.4 change log:
   - Add a safe pull-to-refresh gesture at the top of the app.
 
@@ -161,8 +167,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Lift Log">
 <meta name="theme-color" content="#141413">
-<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.12.4">
-<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.12.4">
+<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.12.6">
+<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.12.6">
 <title>Lift Log - Workout & Progress Tracker</title>
 <style>
 :root{
@@ -186,6 +192,7 @@
 }
 html{scroll-padding-top:env(safe-area-inset-top,0px);background:var(--bg)}
 *,*:before,*:after{box-sizing:inherit}
+html{--pull-shift:0px}
 body{
   margin:0;
   background:var(--bg);
@@ -196,24 +203,23 @@ body{
 }
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:10}
 .pull-refresh{
-  --pull-y:0px;
-  position:fixed;top:env(safe-area-inset-top,0px);left:0;right:0;height:56px;z-index:200;
-  display:flex;align-items:center;justify-content:center;gap:9px;color:var(--mute);
-  opacity:0;pointer-events:none;transform:translate3d(0,calc(-100% + var(--pull-y)),0);
+  position:fixed;top:env(safe-area-inset-top,0px);left:0;right:0;height:64px;z-index:200;
+  display:flex;align-items:center;justify-content:center;color:var(--acc);
+  opacity:0;pointer-events:none;transform:translate3d(0,calc(-100% + var(--pull-shift)),0);
   transition:opacity .16s ease,transform .2s cubic-bezier(.2,.75,.25,1);
 }
 .pull-refresh.visible{opacity:1}
 .pull-refresh.dragging{transition:none}
-.pull-refresh.ready{color:var(--acc)}
 .pull-refresh.error{color:var(--down)}
-.pull-refresh-icon{width:30px;height:30px;flex:none}
+.pull-refresh-icon{width:38px;height:38px;flex:none}
 .pull-refresh-track,.pull-refresh-progress{fill:none;stroke:currentColor;stroke-width:2.5}
 .pull-refresh-track{opacity:.22}
 .pull-refresh-progress{stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round;transform:rotate(-90deg);transform-origin:50% 50%}
-.pull-refresh.spinning .pull-refresh-progress{stroke-dashoffset:25;animation:pullRefreshSpin .8s linear infinite}
-.pull-refresh-label{font-size:12px;font-weight:650;letter-spacing:.15px}
+.pull-refresh.spinning .pull-refresh-progress{stroke-dashoffset:28;animation:pullRefreshSpin .8s linear infinite}
 @keyframes pullRefreshSpin{to{transform:rotate(270deg)}}
-main{max-width:720px;margin:0 auto;padding:4px 12px calc(100px + env(safe-area-inset-bottom,0px));transition:opacity 0.2s ease, transform 0.2s ease; position:relative}
+main{max-width:720px;margin:0 auto;padding:4px 12px calc(100px + env(safe-area-inset-bottom,0px));transition:opacity 0.2s ease, transform 0.2s ease;transform:translate3d(0,var(--pull-shift),0);position:relative}
+.bottom-nav{transform:translate3d(0,var(--pull-shift),0);transition:transform 0.35s cubic-bezier(.22,1,.36,1)}
+body.pull-refresh-active main,body.pull-refresh-active .bottom-nav,body.pull-refresh-active .timer-widget{transition:none}
 /* Keep the document always a hair taller than the screen. On iOS home-screen apps, short pages (Log rest day, Calendar)
    aren't scrollable, and WebKit then anchors position:fixed bottom elements to a viewport shrunk by the top safe area,
    which lifted the bottom nav ~62pt. Home/Progress/Settings are long enough to scroll, so they were never affected. */
@@ -669,7 +675,7 @@ svg{width:100%;height:auto;display:block}
   touch-action: pan-x;
 }
 .bottom-nav.nav-hidden{
-  transform: translateY(calc(100% + 24px + env(safe-area-inset-bottom,0px)));
+  transform: translateY(calc(100% + 24px + env(safe-area-inset-bottom,0px) + var(--pull-shift)));
 }
 .nav-track{position:relative;display:flex;height:100%;touch-action:none}
 .nav-pill{
@@ -706,6 +712,7 @@ svg{width:100%;height:auto;display:block}
   touch-action:none; user-select:none; -webkit-user-select:none;
   cursor:grab; will-change: left, top;
   overflow: visible;
+  translate:0 var(--pull-shift);transition:translate .18s cubic-bezier(.2,.75,.25,1);
 }
 .timer-widget:active{cursor:grabbing}
 .timer-widget.exiting{pointer-events:none}
@@ -807,12 +814,11 @@ svg{width:100%;height:auto;display:block}
 </style>
 </head>
 <body>
-<div class="pull-refresh" id="pull-refresh" role="status" aria-live="polite" aria-hidden="true">
+<div class="pull-refresh" id="pull-refresh" role="img" aria-label="Pull to refresh" aria-hidden="true">
   <svg class="pull-refresh-icon" viewBox="0 0 36 36" aria-hidden="true">
     <circle class="pull-refresh-track" cx="18" cy="18" r="15.5"></circle>
     <circle class="pull-refresh-progress" id="pull-refresh-progress" cx="18" cy="18" r="15.5" pathLength="100"></circle>
   </svg>
-  <span class="pull-refresh-label" id="pull-refresh-label">Pull to refresh</span>
 </div>
 <main id="main">
 <div class="bar">
@@ -2362,11 +2368,13 @@ function vHome(){
 
   let card;
   if(d&&d.ex.length){
-    const total=d.ex.reduce((x,e)=>x+e.sets,0), L=S.logs[today]||{};
+    const L=S.logs[today]||{};
+    const setTargets=d.ex.map(e=>visibleSetCount(e,L[e.id],today));
+    const total=setTargets.reduce((sum,count)=>sum+count,0);
     let done=0;
     d.ex.forEach(e=>{
       const r=L[e.id], n=(r&&r.sets||[]).filter(st=>st&&st.w!==''&&st.w!=null&&st.r!==''&&st.r!=null).length;
-      done+=Math.min(n,e.sets);
+      done+=Math.min(n,visibleSetCount(e,r,today));
     });
     const pct=total?done/total:0, C=2*Math.PI*29, nm=splitDayName(d.name);
     const label=done===0?'Start workout':done<total?'Continue workout':'Workout complete ✓ Review';
@@ -3244,7 +3252,7 @@ function vSet(){
   </div>`;
 
   h+='<div class="card"><h3>App updates</h3><div class="meta" style="margin:6px 0 10px">See what changed in each version.</div><button type="button" class="btn small acc" data-act="whatsnew">What’s New</button></div>';
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.12.4</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.12.6</div></div>`;
 
   return h;
 }
@@ -5518,7 +5526,9 @@ window.addEventListener('unhandledrejection', e=>{
 });
 
 const pullRefresh={startY:null,active:false,ready:false,loading:false,timer:null};
-const pullRefreshThreshold=76;
+const pullRefreshDeadZone=18;
+const pullRefreshTravel=260;
+const pullRefreshMaxShift=92;
 function resetPullRefresh(){
   const indicator=document.getElementById('pull-refresh');
   if(pullRefresh.timer){clearTimeout(pullRefresh.timer);pullRefresh.timer=null;}
@@ -5526,9 +5536,10 @@ function resetPullRefresh(){
   pullRefresh.active=false;
   pullRefresh.ready=false;
   pullRefresh.loading=false;
+  document.body.classList.remove('pull-refresh-active');
+  document.documentElement.style.setProperty('--pull-shift','0px');
   if(!indicator) return;
   indicator.classList.remove('visible','dragging','ready','spinning','error');
-  indicator.style.setProperty('--pull-y','0px');
   indicator.setAttribute('aria-hidden','true');
   const progress=document.getElementById('pull-refresh-progress');
   if(progress) progress.style.strokeDashoffset='100';
@@ -5536,27 +5547,25 @@ function resetPullRefresh(){
 function finishPullRefresh(){
   if(!pullRefresh.active) return;
   const indicator=document.getElementById('pull-refresh');
-  const label=document.getElementById('pull-refresh-label');
   pullRefresh.active=false;
   pullRefresh.startY=null;
-  if(!indicator||!label) return;
+  document.body.classList.remove('pull-refresh-active');
+  if(!indicator) return;
   if(!pullRefresh.ready){
     resetPullRefresh();
     return;
   }
   pullRefresh.loading=true;
   indicator.classList.remove('dragging');
-  indicator.classList.add('visible','ready','spinning');
+  indicator.classList.add('visible','spinning');
   indicator.setAttribute('aria-hidden','false');
-  indicator.style.setProperty('--pull-y',pullRefreshThreshold+'px');
-  label.textContent='Refreshing…';
+  document.documentElement.style.setProperty('--pull-shift',pullRefreshMaxShift+'px');
   if(_saveTimer){clearTimeout(_saveTimer);_saveTimer=null;}
   saveStateImmediate();
   if(!storageOK){
     pullRefresh.loading=false;
-    indicator.classList.remove('spinning','ready');
+    indicator.classList.remove('spinning');
     indicator.classList.add('error');
-    label.textContent='Couldn’t save changes';
     pullRefresh.timer=setTimeout(resetPullRefresh,1800);
     return;
   }
@@ -5577,18 +5586,24 @@ function onPullRefreshMove(event){
   if(distance<=0){resetPullRefresh();return;}
   if(window.scrollY>1){resetPullRefresh();return;}
   event.preventDefault();
-  const pull=Math.min(110,distance*.65);
+  const rawPull=Math.max(0,distance-pullRefreshDeadZone);
+  const progress=Math.min(1,Math.pow(rawPull/pullRefreshTravel,1.45));
+  const shift=pullRefreshMaxShift*progress;
   const indicator=document.getElementById('pull-refresh');
-  const progress=document.getElementById('pull-refresh-progress');
-  const label=document.getElementById('pull-refresh-label');
-  if(!indicator||!progress||!label) return;
-  pullRefresh.ready=pull>=pullRefreshThreshold;
+  const progressRing=document.getElementById('pull-refresh-progress');
+  if(!indicator||!progressRing) return;
+  if(distance<=pullRefreshDeadZone){
+    indicator.classList.remove('visible');
+    indicator.classList.add('dragging');
+    document.documentElement.style.setProperty('--pull-shift','0px');
+    return;
+  }
+  document.body.classList.add('pull-refresh-active');
+  pullRefresh.ready=progress>=1;
   indicator.classList.add('visible','dragging');
-  indicator.classList.toggle('ready',pullRefresh.ready);
   indicator.setAttribute('aria-hidden','false');
-  indicator.style.setProperty('--pull-y',pull+'px');
-  progress.style.strokeDashoffset=String(100-Math.min(100,pull/pullRefreshThreshold*100));
-  label.textContent=pullRefresh.ready?'Release to refresh':'Pull to refresh';
+  document.documentElement.style.setProperty('--pull-shift',shift+'px');
+  progressRing.style.strokeDashoffset=String(100-progress*100);
 }
 document.addEventListener('touchstart',onPullRefreshStart,{passive:true});
 document.addEventListener('touchmove',onPullRefreshMove,{passive:false});
@@ -5624,4 +5639,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.12.4 -->
+</html><!-- END OF FILE — Lift Log version 1.12.6 -->
