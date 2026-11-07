@@ -1,6 +1,12 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.11.6
+  Current version: 1.12.1
+  Version 1.12.1 change log:
+  - Replace the Weight page's typed field with a minimal orange rotary dial; tap its value to type.
+
+  Version 1.12.0 change log:
+  - Add a Weight tab for dated body-weight tracking, kg/lb display, trend-colored charts, and full-backup support.
+
   Version 1.11.6 change log:
   - Replace remaining native prompts, confirmations, and alerts with in-app dialogs for Home Screen reliability.
   - Map unnamed Custom Split days to the weekdays not already explicitly named.
@@ -145,8 +151,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Lift Log">
 <meta name="theme-color" content="#141413">
-<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.11.6">
-<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.11.6">
+<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.12.1">
+<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.12.1">
 <title>Lift Log - Workout & Progress Tracker</title>
 <style>
 :root{
@@ -638,7 +644,7 @@ svg{width:100%;height:auto;display:block}
 }
 .nav-track{position:relative;display:flex;height:100%;touch-action:none}
 .nav-pill{
-  position:absolute;top:0;bottom:0;left:0;width:20%;border-radius:999px;pointer-events:none;
+  position:absolute;top:0;bottom:0;left:0;width:calc(100% / 6);border-radius:999px;pointer-events:none;
   background:rgba(255,255,255,.11);
   background:color-mix(in srgb,var(--ink) 12%,transparent);
   box-shadow:inset 0 1px 1px rgba(255,255,255,.08);
@@ -751,6 +757,20 @@ svg{width:100%;height:auto;display:block}
 .chart-toggle-group button{background:none;border:none;color:var(--mute);padding:4px 8px;font-size:12px;border-radius:6px;cursor:pointer;transition:all 0.15s ease}
 .chart-toggle-group button.on{background:var(--card);color:var(--ink);font-weight:bold;box-shadow:0 2px 4px rgba(0,0,0,0.3)}
 
+.weight-dial-wrap{position:relative;width:min(76vw,290px);aspect-ratio:1;margin:14px auto 4px;touch-action:none;user-select:none;-webkit-user-select:none}
+.weight-dial-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.weight-dial-track{fill:none;stroke:var(--line);stroke-width:8;stroke-linecap:round}
+.weight-dial-progress{fill:none;stroke:var(--acc);stroke-width:8;stroke-linecap:round}
+.weight-dial-dot{fill:var(--mute);opacity:.65}
+.weight-dial-dot.active{fill:var(--acc);opacity:1}
+.weight-dial-center{position:absolute;inset:20%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;pointer-events:none}
+.weight-dial-label{font-size:9px;letter-spacing:1.4px;color:var(--mute);font-weight:650}
+.weight-dial-value{pointer-events:auto;border:0;background:transparent;color:var(--ink);padding:2px 0;font:inherit;font-size:39px;line-height:1.15;font-weight:750;letter-spacing:-1.5px;font-variant-numeric:tabular-nums;cursor:text}
+.weight-dial-value:focus-visible{outline:1px solid var(--acc);outline-offset:4px;border-radius:4px}
+.weight-dial-input{pointer-events:auto;width:155px;border:0;border-bottom:1px solid var(--acc);border-radius:0;background:transparent;color:var(--ink);padding:2px 0;text-align:center;font:inherit;font-size:35px;font-weight:750;letter-spacing:-1.5px;font-variant-numeric:tabular-nums;outline:none}
+.weight-dial-unit{font-size:13px;color:var(--mute);font-weight:600}
+.weight-dial-hint{margin:3px 0 12px;color:var(--mute);font-size:12px;text-align:center}
+
 @keyframes slideUp{from{transform:translateY(30px);opacity:0}to{transform:translateY(0);opacity:1}}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes timerIn{from{transform:translateX(var(--tin,80px)) scale(.94);opacity:0}to{transform:none;opacity:1}}
@@ -775,6 +795,7 @@ svg{width:100%;height:auto;display:block}
     <button data-act="go" data-v="today" id="nav-today" aria-label="Log"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 12h9"/><rect class="f" x="4.5" y="6.5" width="3" height="11" rx="1.2"/><rect class="f" x="16.5" y="6.5" width="3" height="11" rx="1.2"/><path d="M2 9.5v5M22 9.5v5"/></svg></span><span>Log</span></button>
     <button data-act="go" data-v="cal" id="nav-cal" aria-label="Calendar"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect class="f" x="3.5" y="5" width="17" height="15.5" rx="3.2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></span><span>Calendar</span></button>
     <button data-act="go" data-v="prog" id="nav-prog" aria-label="Progress"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect class="f" x="4" y="13" width="4" height="7.5" rx="1.3"/><rect class="f" x="10" y="8.5" width="4" height="12" rx="1.3"/><rect class="f" x="16" y="4" width="4" height="16.5" rx="1.3"/></svg></span><span>Progress</span></button>
+    <button data-act="go" data-v="weight" id="nav-weight" aria-label="Weight"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="17" rx="3"/><path d="M9 8.5a3 3 0 0 1 6 0M12 8.5l1.5 2"/></svg></span><span>Weight</span></button>
     <button data-act="go" data-v="set" id="nav-set" aria-label="Settings"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5h4.5M13.5 7.5H21M3 16.5h9M17.5 16.5H21"/><circle class="f" cx="10.5" cy="7.5" r="3"/><circle class="f" cx="15" cy="16.5" r="3"/></svg></span><span>Settings</span></button>
   </div>
 </div>
@@ -827,7 +848,9 @@ function defaultState(){
     activeRoutine:'ppl',
     routines:{ppl:buildPlan(PPL_ROUTINE),custom:buildPlan(CUSTOM_ROUTINE)},
     logs:{},
-    exerciseUnits:{}
+    exerciseUnits:{},
+    weightLogs:{},
+    weightUnit:'kg'
   };
 }
 
@@ -992,7 +1015,15 @@ function sanitizeImportedState(o){
   if(typeof active!=='string'||!o.routines[active]) active=o.routines.ppl?'ppl':rKeys[0];
   const exerciseUnits={};
   if(isObj(o.exerciseUnits)) Object.keys(o.exerciseUnits).forEach(id=>{if(o.exerciseUnits[id]==='kg'||o.exerciseUnits[id]==='lbs') exerciseUnits[id]=o.exerciseUnits[id];});
-  return {activeRoutine:active,routines:o.routines,logs,archivedExercises:archived,exerciseUnits};
+  const weightLogs={};
+  if(o.weightLogs!==undefined&&!isObj(o.weightLogs)) bad('Body-weight entries must be an object.');
+  if(isObj(o.weightLogs)) Object.keys(o.weightLogs).forEach(date=>{
+    const value=Number(o.weightLogs[date]);
+    if(!isValidISODate(date)||!Number.isFinite(value)||value<=0||value>1000) bad('Body-weight entry for "'+date+'" is invalid.');
+    weightLogs[date]=value;
+  });
+  const weightUnit=o.weightUnit==='lbs'?'lbs':'kg';
+  return {activeRoutine:active,routines:o.routines,logs,archivedExercises:archived,exerciseUnits,weightLogs,weightUnit};
 }
 
 function loadState(){
@@ -1041,7 +1072,7 @@ function applyImportedState(o){
   try{
     normalizeLogNumbers(S);
     pruneArchivedExercises();
-    vHome(); vLog(); vCal(); vProg(); vSet(); calcStreak();
+    vHome(); vLog(); vCal(); vProg(); vWeight(); vSet(); calcStreak();
   }catch(err){
     S=prevS; ui.day=prevDay; ui.prog=prevProg;
     throw new Error('Backup data is not usable ('+(err&&err.message||err)+'). Nothing was changed.');
@@ -1089,6 +1120,9 @@ function unitForExercise(id){return S.exerciseUnits&&S.exerciseUnits[id]==='lbs'
 function weightFromKg(id,value){const n=num(value);return n===null?null:(unitForExercise(id)==='lbs'?n*LB_PER_KG:n);}
 function weightToKg(id,value){const n=num(value);return n===null?null:(unitForExercise(id)==='lbs'?n/LB_PER_KG:n);}
 function formatExerciseWeight(id,value){const n=weightFromKg(id,value);if(n===null)return '';const rounded=Math.round(n*10)/10;return Number.isInteger(rounded)?String(rounded):String(rounded);}
+function bodyWeightFromKg(value){return S.weightUnit==='lbs'?value*LB_PER_KG:value;}
+function bodyWeightToKg(value){return S.weightUnit==='lbs'?value/LB_PER_KG:value;}
+function formatBodyWeight(value){return bodyWeightFromKg(value).toFixed(1);}
 function setExerciseUnit(id,unit){if(!id||!['kg','lbs'].includes(unit))return;if(!S.exerciseUnits)S.exerciseUnits={};if(unit==='kg')delete S.exerciseUnits[id];else S.exerciseUnits[id]=unit;saveState(0);}
 function normalizeLogNumbers(state){
   Object.values(state.logs||{}).forEach(day=>Object.values(day||{}).forEach(record=>{
@@ -1228,7 +1262,7 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const getPlan=()=>S.routines[S.activeRoutine]||S.routines.ppl;
 const WD=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
-const TAB_ORDER=['home','today','cal','prog','set'];
+const TAB_ORDER=['home','today','cal','prog','weight','set'];
 
 const dayIdx=d=>{
   if(!isValidISODate(d)) return -1;
@@ -1254,7 +1288,7 @@ const dayIdx=d=>{
 
 const dayFor=d=>dayIdx(d);
 const now=new Date();
-const ui={tab:'home',date:iso(now),day:0,dayOverrideDate:null,progressReturn:null,extra:{},homeMetric:'1rm',homeGraphType:T.homeGraphType||'line',progGraphType:T.progGraphType||'line',cm:{y:now.getFullYear(),m:now.getMonth()},overallShowAll:false,progShowAll:false,progTableAll:false,custEditDay:null};
+const ui={tab:'home',date:iso(now),day:0,dayOverrideDate:null,progressReturn:null,weightEditDate:null,extra:{},homeMetric:'1rm',homeGraphType:T.homeGraphType||'line',progGraphType:T.progGraphType||'line',cm:{y:now.getFullYear(),m:now.getMonth()},overallShowAll:false,progShowAll:false,progTableAll:false,custEditDay:null};
 let lastRenderedTab=null;
 let lastRenderedDate=null;
 let lastRenderedDay=null;
@@ -2114,7 +2148,7 @@ function render(skipAnim = false){
     backBtn.setAttribute('data-v','home');
     backBtn.setAttribute('aria-label','Back to menu');
   }
-  document.getElementById('ttl').textContent={home:'Lift Log',today:'Today’s Workout',log:'Log Workout',cal:'Calendar',prog:'Progress',set:'Settings'}[t]||'Lift Log';
+  document.getElementById('ttl').textContent={home:'Lift Log',today:'Today’s Workout',log:'Log Workout',cal:'Calendar',prog:'Progress',weight:'Weight',set:'Settings'}[t]||'Lift Log';
 
   const navBtns=[...document.querySelectorAll('.bottom-nav button')];
   navBtns.forEach(b=>{ b.classList.remove('active'); b.removeAttribute('aria-current'); });
@@ -2133,7 +2167,8 @@ function render(skipAnim = false){
   const app=document.getElementById('app');
   const oldTabs=(wasLogTab&&isLogTab)?app.querySelector('.tabs'):null;
   const oldTabsLeft=oldTabs?oldTabs.scrollLeft:null;
-  app.innerHTML={home:vHome,today:vLog,log:vLog,cal:vCal,prog:vProg,set:vSet}[t]();
+  app.innerHTML={home:vHome,today:vLog,log:vLog,cal:vCal,prog:vProg,weight:vWeight,set:vSet}[t]();
+  if(t==='weight') initWeightDial();
   if(isLogTab){
     const tabsEl=app.querySelector('.tabs');
     if(tabsEl){
@@ -2850,6 +2885,202 @@ function chart(ds,v,type,unit='kg'){
   </div>`;
 }
 
+function renderWeightChart(entries){
+  if(!entries.length) return '<div class="empty">Add your first weigh-in to start your chart.</div>';
+  const W=600,H=220,p=42;
+  const values=entries.map(entry=>bodyWeightFromKg(entry.kg));
+  let mn=Math.min(...values),mx=Math.max(...values);
+  if(mn===mx){const pad=Math.max(0.5,mn*0.01);mn=Math.max(0,mn-pad);mx+=pad;}
+  else{const pad=(mx-mn)*0.18;mn=Math.max(0,mn-pad);mx+=pad;}
+  const first=entries[0].kg,last=entries[entries.length-1].kg;
+  const color=last<first?'var(--up)':last>first?'var(--down)':'var(--mute)';
+  const X=i=>entries.length===1?(W+p-12)/2:p+i*(W-p-12)/(entries.length-1);
+  const Y=value=>H-30-(value-mn)*(H-54)/(mx-mn);
+  const points=entries.map((entry,i)=>X(i)+','+Y(values[i])).join(' ');
+  const areaPoints=`${X(0)},${H-30} ${points} ${X(entries.length-1)},${H-30}`;
+  const gradient=entries.length>1?`<defs><linearGradient id="weightTrendFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.35"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs><polygon points="${areaPoints}" fill="url(#weightTrendFill)"/>`:'';
+  return `<div style="position:relative;touch-action:pan-y">
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Body weight trend chart" style="width:100%;touch-action:pan-y">
+      <line x1="${p}" y1="${Y(mn)}" x2="${W-12}" y2="${Y(mn)}" style="stroke:var(--line)"/>
+      <line x1="${p}" y1="${Y(mx)}" x2="${W-12}" y2="${Y(mx)}" style="stroke:var(--line)"/>
+      <text x="4" y="${Y(mx)+4}" font-size="11" style="fill:var(--mute)">${mx.toFixed(1)}</text>
+      <text x="4" y="${Y(mn)+4}" font-size="11" style="fill:var(--mute)">${mn.toFixed(1)}</text>
+      ${gradient}
+      ${entries.length>1?`<polyline points="${points}" fill="none" stroke="${color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>`:''}
+      ${entries.map((entry,i)=>`<circle cx="${X(i)}" cy="${Y(values[i])}" r="4.5" fill="${color}"><title>${fmt(entry.date)}: ${values[i].toFixed(1)} ${S.weightUnit}</title></circle>`).join('')}
+      <text x="${p}" y="${H-6}" font-size="11" style="fill:var(--mute)">${esc(fmt(entries[0].date))}</text>
+      <text x="${W-12}" y="${H-6}" font-size="11" text-anchor="end" style="fill:var(--mute)">${esc(fmt(entries[entries.length-1].date))}</text>
+    </svg>
+  </div>${entries.length===1?'<div class="meta">Add another weigh-in on a different date to see your trend.</div>':''}`;
+}
+
+function vWeight(){
+  const entries=Object.entries(S.weightLogs||{}).map(([date,kg])=>({date,kg:Number(kg)})).sort((a,b)=>a.date.localeCompare(b.date));
+  const latest=entries.length?entries[entries.length-1]:null;
+  const previous=entries.length>1?entries[entries.length-2]:null;
+  const change=latest&&previous?latest.kg-previous.kg:0;
+  const changeColor=change<0?'var(--up)':change>0?'var(--down)':'var(--mute)';
+  const date=ui.weightEditDate&&S.weightLogs[ui.weightEditDate]!==undefined?ui.weightEditDate:iso(new Date());
+  const dialKg=ui.weightEditDate&&S.weightLogs[ui.weightEditDate]!==undefined?Number(S.weightLogs[ui.weightEditDate]):latest?latest.kg:null;
+  const dialValue=dialKg===null?'':formatBodyWeight(dialKg);
+  const unit=S.weightUnit||'kg';
+  const history=entries.slice().reverse();
+  return `<div class="card">
+    <h3><span>Body Weight</span><span class="chart-toggle-group" aria-label="Body weight units"><button type="button" class="${unit==='kg'?'on':''}" data-act="weight-unit" data-v="kg">kg</button><button type="button" class="${unit==='lbs'?'on':''}" data-act="weight-unit" data-v="lbs">lb</button></span></h3>
+    ${latest?`<div class="meta" style="margin-top:10px">Latest weigh-in · ${esc(fmt(latest.date))}${previous?` · <span style="color:${changeColor}">${change<0?'':change>0?'+':''}${bodyWeightFromKg(change).toFixed(1)} ${unit} since previous</span>`:''}</div>`:'<div class="meta" style="margin-top:10px">Add your first weigh-in to start tracking.</div>'}
+    <div class="weight-dial-wrap" id="weight-dial" role="group" aria-label="Body weight adjustment dial" tabindex="0">
+      <svg class="weight-dial-svg" viewBox="0 0 300 300" aria-hidden="true">
+        <path class="weight-dial-track" d="M64 220 A106 106 0 1 1 236 220"/>
+        <path class="weight-dial-progress" id="weight-dial-arc" pathLength="100" d="M64 220 A106 106 0 1 1 236 220"/>
+        <g id="weight-dial-dots"></g>
+      </svg>
+      <div class="weight-dial-center">
+        <span class="weight-dial-label">BODY WEIGHT</span>
+        <button class="weight-dial-value" id="weight-value-display" type="button" aria-label="Tap to type body weight">${dialValue||'—'}</button>
+        <input class="weight-dial-input" id="weight-value" type="number" inputmode="decimal" min="0.1" max="1000" step="0.1" aria-label="Enter body weight" value="${esc(dialValue)}" hidden>
+        <span class="weight-dial-unit" id="weight-dial-unit">${unit}</span>
+      </div>
+    </div>
+    <div class="weight-dial-hint">Drag around the ring · Tap the number to type</div>
+    <label style="display:block;font-size:12px;color:var(--mute)">Weigh-in date<input id="weight-date" type="date" value="${date}" style="display:block;width:100%;margin-top:4px"></label>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button type="button" class="btn acc" data-act="save-weight" style="flex:1">${ui.weightEditDate?'Update weigh-in':'Add weigh-in'}</button>
+      ${ui.weightEditDate?'<button type="button" class="btn" data-act="cancel-weight-edit">Cancel</button>':''}
+    </div>
+  </div>
+  <div class="card">
+    <h3><span>Weight Trend</span></h3>
+    <div style="margin-top:8px">${renderWeightChart(entries)}</div>
+  </div>
+  <div class="card wrap">
+    <h3><span>Weigh-in History</span></h3>
+    ${history.length?`<table style="margin-top:8px"><tr><th>Date</th><th>Weight</th><th>Actions</th></tr>${history.map(entry=>`<tr><td>${esc(fmt(entry.date))}</td><td>${formatBodyWeight(entry.kg)} ${unit}</td><td style="white-space:nowrap"><button type="button" class="btn small" data-act="edit-weight" data-v="${entry.date}" aria-label="Edit weigh-in ${entry.date}">Edit</button> <button type="button" class="btn small" data-act="delete-weight" data-v="${entry.date}" aria-label="Delete weigh-in ${entry.date}">×</button></td></tr>`).join('')}</table>`:'<div class="meta" style="margin-top:8px">Your weigh-ins will appear here.</div>'}
+  </div>`;
+}
+
+function initWeightDial(){
+  const dial=document.getElementById('weight-dial');
+  const valueDisplay=document.getElementById('weight-value-display');
+  const valueInput=document.getElementById('weight-value');
+  const unitDisplay=document.getElementById('weight-dial-unit');
+  const arc=document.getElementById('weight-dial-arc');
+  const dots=document.getElementById('weight-dial-dots');
+  if(!dial||!valueDisplay||!valueInput||!unitDisplay||!arc||!dots) return;
+  const dotCount=36;
+  let dragging=false,previousAngle=null,angleRemainder=0,valueBeforeEdit=valueInput.value;
+  dots.replaceChildren();
+  for(let i=0;i<dotCount;i++){
+    const angle=(135+i*270/(dotCount-1))*Math.PI/180;
+    const dot=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    dot.setAttribute('cx',String(150+Math.cos(angle)*118));
+    dot.setAttribute('cy',String(150+Math.sin(angle)*118));
+    dot.setAttribute('r',i%5===0?'2.2':'1.4');
+    dot.setAttribute('class','weight-dial-dot');
+    dots.appendChild(dot);
+  }
+  const fromDisplay=value=>S.weightUnit==='lbs'?value/LB_PER_KG:value;
+  const toDisplay=kg=>S.weightUnit==='lbs'?kg*LB_PER_KG:kg;
+  const setDraftKg=kg=>{
+    const maxDraftKg=S.weightUnit==='lbs'?1000/LB_PER_KG:1000;
+    const bounded=Math.min(maxDraftKg,Math.max(0.1,kg));
+    valueInput.value=(Math.round(toDisplay(bounded)*10)/10).toFixed(1);
+    updateWeightDialDisplay();
+  };
+  const angleAt=event=>{
+    const rect=dial.getBoundingClientRect();
+    const x=event.clientX-(rect.left+rect.width/2);
+    const y=event.clientY-(rect.top+rect.height/2);
+    let angle=Math.atan2(y,x)*180/Math.PI;
+    if(angle< -135) angle+=360;
+    return angle;
+  };
+  const finishTyping=()=>{
+    if(valueInput.hidden) return;
+    const entered=num(valueInput.value);
+    if(entered!==null&&entered>0&&entered<=1000) setDraftKg(fromDisplay(entered));
+    valueInput.hidden=true;
+    valueDisplay.hidden=false;
+    valueBeforeEdit=valueInput.value;
+    updateWeightDialDisplay();
+  };
+  const startTyping=()=>{
+    valueBeforeEdit=valueInput.value;
+    valueDisplay.hidden=true;
+    valueInput.hidden=false;
+    valueInput.focus();
+    valueInput.select();
+  };
+  dial.addEventListener('pointerdown',event=>{
+    if(event.target.closest('#weight-value-display, #weight-value')) return;
+    const rect=dial.getBoundingClientRect();
+    const radius=Math.hypot(event.clientX-(rect.left+rect.width/2),event.clientY-(rect.top+rect.height/2))/(rect.width/2);
+    if(radius<.66||radius>.84) return;
+    if(valueInput.value.trim()==='') setDraftKg(70);
+    dragging=true;
+    previousAngle=angleAt(event);
+    angleRemainder=0;
+    dial.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  dial.addEventListener('pointermove',event=>{
+    if(!dragging) return;
+    const angle=angleAt(event);
+    let delta=angle-previousAngle;
+    if(delta>180) delta-=360;
+    if(delta< -180) delta+=360;
+    previousAngle=angle;
+    angleRemainder+=delta;
+    const increments=Math.trunc(angleRemainder/2.5);
+    if(increments){
+      const current=num(valueInput.value);
+      setDraftKg(fromDisplay(current||70)+increments*.1);
+      angleRemainder-=increments*2.5;
+    }
+  });
+  const stopDragging=()=>{dragging=false;previousAngle=null;angleRemainder=0;};
+  dial.addEventListener('pointerup',stopDragging);
+  dial.addEventListener('pointercancel',stopDragging);
+  valueDisplay.addEventListener('click',startTyping);
+  valueInput.addEventListener('blur',finishTyping);
+  valueInput.addEventListener('keydown',event=>{
+    if(event.key==='Enter'){event.preventDefault();finishTyping();valueInput.blur();}
+    if(event.key==='Escape'){valueInput.value=valueBeforeEdit;finishTyping();}
+  });
+  dial.addEventListener('keydown',event=>{
+    if(event.target!==dial) return;
+    if(event.key==='ArrowUp'||event.key==='ArrowRight'){
+      const current=num(valueInput.value);
+      setDraftKg(fromDisplay(current||70)+.1);
+      event.preventDefault();
+    }else if(event.key==='ArrowDown'||event.key==='ArrowLeft'){
+      const current=num(valueInput.value);
+      setDraftKg(fromDisplay(current||70)-.1);
+      event.preventDefault();
+    }
+  });
+  updateWeightDialDisplay();
+}
+
+function updateWeightDialDisplay(){
+  const valueInput=document.getElementById('weight-value');
+  const valueDisplay=document.getElementById('weight-value-display');
+  const dial=document.getElementById('weight-dial');
+  const unitDisplay=document.getElementById('weight-dial-unit');
+  const arc=document.getElementById('weight-dial-arc');
+  const dots=document.getElementById('weight-dial-dots');
+  if(!valueInput||!valueDisplay||!dial||!unitDisplay||!arc||!dots) return;
+  const minKg=20,maxKg=300;
+  const entered=num(valueInput.value);
+  const hasValue=entered!==null&&entered>0;
+  const kg=hasValue?(S.weightUnit==='lbs'?entered/LB_PER_KG:entered):null;
+  valueDisplay.textContent=hasValue?(Math.round(entered*10)/10).toFixed(1):'—';
+  unitDisplay.textContent=S.weightUnit||'kg';
+  const normalized=kg===null?0:(Math.min(maxKg,Math.max(minKg,kg))-minKg)/(maxKg-minKg);
+  arc.style.strokeDasharray=`${100*normalized} 100`;
+  const activeCount=Math.round(normalized*(dots.children.length-1));
+  [...dots.children].forEach((dot,index)=>dot.classList.toggle('active',hasValue&&index<=activeCount));
+}
+
 function vSet(){
   const rows=[['bg','Background'],['card','Main (cards)'],['acc','Accent Highlight'],['ink','Text Color'],['up','Trend Up (Green)'],['down','Trend Down (Red)']];
   const lastBackup=getLastFullBackupDate();
@@ -2949,7 +3180,7 @@ function vSet(){
 
   h+=`<div class="card">
     <h3>Backup & Export</h3>
-    <textarea id="bk" style="margin-top:8px" spellcheck="false">${esc(JSON.stringify({routines:S.routines, logs:S.logs, archivedExercises:S.archivedExercises||{}, activeRoutine:S.activeRoutine, exerciseUnits:S.exerciseUnits||{}, theme:themeForBackup()},null,2))}</textarea>
+    <textarea id="bk" style="margin-top:8px" spellcheck="false">${esc(JSON.stringify({routines:S.routines, logs:S.logs, archivedExercises:S.archivedExercises||{}, activeRoutine:S.activeRoutine, exerciseUnits:S.exerciseUnits||{}, weightLogs:S.weightLogs||{}, weightUnit:S.weightUnit||'kg', theme:themeForBackup()},null,2))}</textarea>
     <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
       <button class="btn small" data-act="copy">Copy JSON</button>
       <button class="btn small acc" data-act="restore">Restore JSON</button>
@@ -2962,7 +3193,7 @@ function vSet(){
   </div>`;
 
   h+='<div class="card"><h3>App updates</h3><div class="meta" style="margin:6px 0 10px">See what changed in each version.</div><button type="button" class="btn small acc" data-act="whatsnew">What’s New</button></div>';
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.11.6</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.12.1</div></div>`;
 
   return h;
 }
@@ -3111,12 +3342,19 @@ function createTextBackup() {
       if(rec.note) lines.push(`Note JSON: ${JSON.stringify(rec.note)}`);
     });
   });
+  const weightDates=Object.keys(S.weightLogs||{}).sort();
+  lines.push('',`BODY WEIGHT (${S.weightUnit||'kg'})`);
+  weightDates.forEach(date=>{
+    const value=Number(S.weightLogs[date]);
+    const display=S.weightUnit==='lbs'?value*2.2046226218:value;
+    lines.push(`${date}: ${display.toFixed(1)} ${S.weightUnit||'kg'}`);
+  });
   lines.push(
     '',
     'FULL RESTORE DATA (keep this section when importing)',
-    'The JSON below preserves routines, exercise IDs, all log data, and theme settings.',
+    'The JSON below preserves routines, exercise IDs, all log data, body-weight entries, and theme settings.',
     'LIFTLOG_BACKUP_JSON_BEGIN',
-    JSON.stringify({routines:S.routines,logs:S.logs,archivedExercises:S.archivedExercises||{},activeRoutine:S.activeRoutine,exerciseUnits:S.exerciseUnits||{},theme:themeForBackup()},null,2),
+    JSON.stringify({routines:S.routines,logs:S.logs,archivedExercises:S.archivedExercises||{},activeRoutine:S.activeRoutine,exerciseUnits:S.exerciseUnits||{},weightLogs:S.weightLogs||{},weightUnit:S.weightUnit||'kg',theme:themeForBackup()},null,2),
     'LIFTLOG_BACKUP_JSON_END'
   );
   return lines.join('\n')+'\n';
@@ -4384,6 +4622,61 @@ document.addEventListener('click', e => {
     ui.tab = v;
     render();
   }
+  else if(a==='weight-unit'){
+    if(!['kg','lbs'].includes(v)||v===S.weightUnit) return;
+    const valueInput=document.getElementById('weight-value');
+    const dateInput=document.getElementById('weight-date');
+    const raw=valueInput&&valueInput.value.trim();
+    const entered=raw===''?null:Number(raw);
+    const enteredKg=entered!==null&&Number.isFinite(entered)?bodyWeightToKg(entered):null;
+    const enteredDate=dateInput&&dateInput.value;
+    S.weightUnit=v;
+    saveState(0);
+    render(true);
+    const nextWeightInput=document.getElementById('weight-value');
+    const nextDateInput=document.getElementById('weight-date');
+    if(nextWeightInput){nextWeightInput.value=enteredKg===null?'':bodyWeightFromKg(enteredKg).toFixed(1);updateWeightDialDisplay();}
+    if(nextDateInput&&isValidISODate(enteredDate)) nextDateInput.value=enteredDate;
+  }
+  else if(a==='save-weight'){
+    const dateInput=document.getElementById('weight-date');
+    const valueInput=document.getElementById('weight-value');
+    const date=dateInput&&dateInput.value;
+    const value=valueInput&&Number(valueInput.value);
+    if(!isValidISODate(date)){showAppAlert('Choose a valid weigh-in date.');return;}
+    if(!Number.isFinite(value)||value<=0||value>1000){showAppAlert('Enter a weight greater than 0 and no more than 1000 '+S.weightUnit+'.');return;}
+    const kg=bodyWeightToKg(value);
+    if(!Number.isFinite(kg)||kg<=0||kg>1000){showAppAlert('That weight is outside the supported range.');return;}
+    if(!S.weightLogs) S.weightLogs={};
+    S.weightLogs[date]=Math.round(kg*1000)/1000;
+    ui.weightEditDate=null;
+    saveState(0);
+    render(true);
+  }
+  else if(a==='edit-weight'){
+    if(!isValidISODate(v)||S.weightLogs[v]===undefined) return;
+    ui.weightEditDate=v;
+    render(true);
+  }
+  else if(a==='cancel-weight-edit'){
+    ui.weightEditDate=null;
+    render(true);
+  }
+  else if(a==='delete-weight'){
+    if(!isValidISODate(v)||S.weightLogs[v]===undefined) return;
+    showAppConfirm({
+      title:'Delete weigh-in?',
+      message:'Permanently delete the weigh-in for '+fmt(v)+'?',
+      confirmLabel:'Delete',
+      danger:true,
+      onConfirm:()=>{
+        delete S.weightLogs[v];
+        if(ui.weightEditDate===v) ui.weightEditDate=null;
+        saveState(0);
+        render(true);
+      }
+    });
+  }
   else if(a==='progress-back'){
     const origin=ui.progressReturn;
     if(!origin) return;
@@ -4816,6 +5109,7 @@ document.addEventListener('click', e => {
 
 document.addEventListener('input', e => {
   const el = e.target;
+  if(el.id==='weight-value'){updateWeightDialDisplay();return;}
   const cust = el.getAttribute('data-cust');
   if(cust){
     const di = parseInt(el.getAttribute('data-di'), 10);
@@ -5108,4 +5402,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.11.6 -->
+</html><!-- END OF FILE — Lift Log version 1.12.1 -->
