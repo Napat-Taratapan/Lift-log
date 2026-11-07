@@ -1,6 +1,16 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.12.1
+  Current version: 1.12.4
+  Version 1.12.4 change log:
+  - Add a safe pull-to-refresh gesture at the top of the app.
+
+  Version 1.12.3 change log:
+  - Persist per-workout set-count changes and keep workout progress in sync.
+  - Fix set-row insertion during the add-set animation.
+
+  Version 1.12.2 change log:
+  - Include body-weight records in CSV and TXT exports; import weight data with backward-compatible validation.
+
   Version 1.12.1 change log:
   - Replace the Weight page's typed field with a minimal orange rotary dial; tap its value to type.
 
@@ -151,8 +161,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Lift Log">
 <meta name="theme-color" content="#141413">
-<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.12.1">
-<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.12.1">
+<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.12.4">
+<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.12.4">
 <title>Lift Log - Workout & Progress Tracker</title>
 <style>
 :root{
@@ -185,6 +195,24 @@ body{
   overflow-x:hidden;
 }
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:10}
+.pull-refresh{
+  --pull-y:0px;
+  position:fixed;top:env(safe-area-inset-top,0px);left:0;right:0;height:56px;z-index:200;
+  display:flex;align-items:center;justify-content:center;gap:9px;color:var(--mute);
+  opacity:0;pointer-events:none;transform:translate3d(0,calc(-100% + var(--pull-y)),0);
+  transition:opacity .16s ease,transform .2s cubic-bezier(.2,.75,.25,1);
+}
+.pull-refresh.visible{opacity:1}
+.pull-refresh.dragging{transition:none}
+.pull-refresh.ready{color:var(--acc)}
+.pull-refresh.error{color:var(--down)}
+.pull-refresh-icon{width:30px;height:30px;flex:none}
+.pull-refresh-track,.pull-refresh-progress{fill:none;stroke:currentColor;stroke-width:2.5}
+.pull-refresh-track{opacity:.22}
+.pull-refresh-progress{stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round;transform:rotate(-90deg);transform-origin:50% 50%}
+.pull-refresh.spinning .pull-refresh-progress{stroke-dashoffset:25;animation:pullRefreshSpin .8s linear infinite}
+.pull-refresh-label{font-size:12px;font-weight:650;letter-spacing:.15px}
+@keyframes pullRefreshSpin{to{transform:rotate(270deg)}}
 main{max-width:720px;margin:0 auto;padding:4px 12px calc(100px + env(safe-area-inset-bottom,0px));transition:opacity 0.2s ease, transform 0.2s ease; position:relative}
 /* Keep the document always a hair taller than the screen. On iOS home-screen apps, short pages (Log rest day, Calendar)
    aren't scrollable, and WebKit then anchors position:fixed bottom elements to a viewport shrunk by the top safe area,
@@ -215,6 +243,7 @@ body{min-height:calc(100vh - env(safe-area-inset-top,0px) - env(safe-area-inset-
 }
 @media (prefers-reduced-motion:reduce){
   #app.tab-enter-left,#app.tab-enter-right,#app.day-enter-older,#app.day-enter-newer{animation:none;will-change:auto}
+  .pull-refresh.spinning .pull-refresh-progress{animation:none;stroke-dashoffset:0}
   *,*:before,*:after{scroll-behavior:auto!important;transition-duration:0.01ms!important;animation-duration:0.01ms!important;animation-iteration-count:1!important}
 }
 
@@ -778,6 +807,13 @@ svg{width:100%;height:auto;display:block}
 </style>
 </head>
 <body>
+<div class="pull-refresh" id="pull-refresh" role="status" aria-live="polite" aria-hidden="true">
+  <svg class="pull-refresh-icon" viewBox="0 0 36 36" aria-hidden="true">
+    <circle class="pull-refresh-track" cx="18" cy="18" r="15.5"></circle>
+    <circle class="pull-refresh-progress" id="pull-refresh-progress" cx="18" cy="18" r="15.5" pathLength="100"></circle>
+  </svg>
+  <span class="pull-refresh-label" id="pull-refresh-label">Pull to refresh</span>
+</div>
 <main id="main">
 <div class="bar">
   <button class="ib" id="back" data-act="go" data-v="home" aria-label="Back to menu">‹</button>
@@ -1000,7 +1036,13 @@ function sanitizeImportedState(o){
         if(!isObj(st)) bad('Set '+(si+1)+' for "'+exId+'" on '+date+' is invalid.');
         return {w:st.w??'',r:st.r??''};
       });
-      cleanDay[exId]={sets,note:typeof rec.note==='string'?rec.note:rec.note==null?'':String(rec.note)};
+      const cleanRecord={sets,note:typeof rec.note==='string'?rec.note:rec.note==null?'':String(rec.note)};
+      if(rec.setCountOverride!==undefined){
+        const override=Number(rec.setCountOverride);
+        if(!Number.isInteger(override)||override<1||override>1000) bad('Set count for "'+exId+'" on '+date+' is invalid.');
+        cleanRecord.setCountOverride=override;
+      }
+      cleanDay[exId]=cleanRecord;
     });
     logs[date]=cleanDay;
   });
@@ -1066,7 +1108,10 @@ function loadState(){
 }
 
 function applyImportedState(o){
-  const next=sanitizeImportedState(o);
+  const imported={...o};
+  if(!Object.prototype.hasOwnProperty.call(imported,'weightLogs')) imported.weightLogs=S.weightLogs||{};
+  if(!Object.prototype.hasOwnProperty.call(imported,'weightUnit')) imported.weightUnit=S.weightUnit||'kg';
+  const next=sanitizeImportedState(imported);
   const prevS=S, prevDay=ui.day, prevProg=ui.prog;
   S=next;
   try{
@@ -1316,12 +1361,15 @@ function relatedIds(id){
 function setCountKey(exId, dateStr){
   return String(dateStr || ui.date || '') + '|' + String(exId || '');
 }
-/** Visible set count for an exercise on the log screen.
- *  ui.extra[date|id], when set, is an explicit session set count (absolute).
- *  Otherwise the count is max(planned sets, already-logged set slots). */
+/** Visible set count uses the saved per-session value before the in-memory fallback. */
 function visibleSetCount(ex, rec, dateStr){
   const planned = Math.max(1, Number(ex && ex.sets) || 1);
   const logged = (rec && Array.isArray(rec.sets)) ? rec.sets.length : 0;
+  const saved = rec && rec.setCountOverride;
+  if(saved !== undefined && saved !== null && saved !== ''){
+    const n = Math.round(Number(saved));
+    if(Number.isFinite(n)) return Math.max(1, n);
+  }
   const key = setCountKey(ex && ex.id, dateStr);
   const forced = ui.extra && ui.extra[key];
   if(forced !== undefined && forced !== null && forced !== ''){
@@ -1389,9 +1437,11 @@ function animateAddSetRow(exId){
   const row = buildSetRowElement(exId, index, {w:'', r:''});
   const controls = card.querySelector('[data-act="addset"]');
   const insertBefore = controls ? controls.closest('div') : null;
+  const rowParent = rows.length ? rows[0].parentElement : card;
+  const validInsertBefore = insertBefore && insertBefore.parentElement===rowParent ? insertBefore : null;
   if(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches){
-    if(insertBefore) card.insertBefore(row, insertBefore);
-    else card.appendChild(row);
+    if(validInsertBefore) rowParent.insertBefore(row, validInsertBefore);
+    else rowParent.appendChild(row);
     updateRemoveSetButton(card, index + 1);
     const wInput = row.querySelector('input[data-f="w"]');
     if(wInput) setTimeout(()=>wInput.focus(), 40);
@@ -1403,8 +1453,8 @@ function animateAddSetRow(exId){
   row.style.marginBottom = '0px';
   row.style.overflow = 'hidden';
   row.style.boxSizing = 'border-box';
-  if(insertBefore) card.insertBefore(row, insertBefore);
-  else card.appendChild(row);
+  if(validInsertBefore) rowParent.insertBefore(row, validInsertBefore);
+  else rowParent.appendChild(row);
   // Measure natural height
   row.style.height = 'auto';
   const targetH = row.getBoundingClientRect().height;
@@ -2519,11 +2569,12 @@ function workoutSetProgress(dateStr, activeDayIdx){
   const day=getPlan()[activeDayIdx];
   if(!day||!Array.isArray(day.ex)) return {done:0,total:0};
   const log=S.logs[dateStr]||{};
-  const total=day.ex.reduce((sum,ex)=>sum+Math.max(1,Number(ex.sets)||1),0);
+  const targets=day.ex.map(ex=>visibleSetCount(ex,log[ex.id],dateStr));
+  const total=targets.reduce((sum,count)=>sum+count,0);
   const done=day.ex.reduce((sum,ex)=>{
     const rec=log[ex.id];
     const count=(rec&&Array.isArray(rec.sets)?rec.sets:[]).filter(st=>st&&st.w!==''&&st.w!=null&&st.r!==''&&st.r!=null).length;
-    return sum+Math.min(count,Math.max(1,Number(ex.sets)||1));
+    return sum+Math.min(count,visibleSetCount(ex,rec,dateStr));
   },0);
   return {done,total};
 }
@@ -3193,7 +3244,7 @@ function vSet(){
   </div>`;
 
   h+='<div class="card"><h3>App updates</h3><div class="meta" style="margin:6px 0 10px">See what changed in each version.</div><button type="button" class="btn small acc" data-act="whatsnew">What’s New</button></div>';
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.12.1</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.12.4</div></div>`;
 
   return h;
 }
@@ -3253,20 +3304,41 @@ function parseCSVRows(text) {
 function parseCSVLogs(text) {
   const rows = parseCSVRows(text);
   const logs = {};
-  if (rows.length < 2) return logs;
+  const weightLogs = {};
+  if (!rows.length) return {logs,weightLogs,weightUnit:null};
   const header = rows[0].map(v => String(v).trim().toLowerCase());
   const col = name => header.indexOf(name);
-  const dateCol = col('date'), exCol = col('exercise'), exIdCol = col('exercise id'), setCol = col('set'), weightCol = col('weight'), repsCol = col('reps'), noteCol = col('note'), unitCol = col('unit');
+  const dateCol = col('date'), exCol = col('exercise'), exIdCol = col('exercise id'), setCol = col('set'), weightCol = col('weight'), repsCol = col('reps'), noteCol = col('note'), unitCol = col('unit'), recordTypeCol = col('record type');
   if (dateCol < 0 || exCol < 0) throw new Error('CSV must contain Date and Exercise columns.');
+  let weightUnit=null;
+  rows.slice(1).forEach(parts=>{
+    const recordType=recordTypeCol<0?'':String(parts[recordTypeCol]??'').trim().toLowerCase().replace(/[\s-]+/g,'_');
+    if(recordType!=='body_weight'&&recordType!=='weight') return;
+    const date=String(parts[dateCol]??'').trim();
+    const rawWeight=weightCol<0?'':String(parts[weightCol]??'').trim();
+    const rawUnit=unitCol<0?'':String(parts[unitCol]??'').trim().toLowerCase();
+    const inputUnit=rawUnit==='lbs'||rawUnit==='lb'?'lbs':rawUnit==='kg'?'kg':null;
+    const value=Number(rawWeight);
+    if(!isValidISODate(date)) throw new Error('CSV body-weight entry has an invalid date.');
+    if(rawWeight===''||!Number.isFinite(value)||value<=0||value>1000) throw new Error('CSV body-weight entry for '+date+' must be greater than 0 and no more than 1000.');
+    if(!inputUnit) throw new Error('CSV body-weight entry for '+date+' must specify kg or lbs in the Unit column.');
+    const kg=inputUnit==='lbs'?value/LB_PER_KG:value;
+    if(!Number.isFinite(kg)||kg<=0||kg>1000) throw new Error('CSV body-weight entry for '+date+' is outside the supported range.');
+    weightLogs[date]=Math.round(kg*1000)/1000;
+    weightUnit=inputUnit;
+  });
+  if(rows.length<2) return {logs,weightLogs,weightUnit};
   rows.slice(1).forEach(parts => {
     if (!parts.some(v => String(v).trim() !== '')) return;
+    const recordType=recordTypeCol<0?'':String(parts[recordTypeCol]??'').trim().toLowerCase().replace(/[\s-]+/g,'_');
+    if(recordType==='body_weight'||recordType==='weight') return;
     const date = String(parts[dateCol] ?? '').trim();
     const exName = String(parts[exCol] ?? '').trim();
     if (!isValidISODate(date) || !exName) return;
     const rawSet = setCol < 0 ? '1' : String(parts[setCol] ?? '').trim();
     const setNo = rawSet === '' ? 0 : Number(rawSet);
     const rawWeight = weightCol < 0 ? '' : String(parts[weightCol] ?? '').trim();
-    const inputUnit = unitCol >= 0 && String(parts[unitCol] ?? '').trim().toLowerCase()==='lbs' ? 'lbs' : 'kg';
+    const inputUnit = unitCol >= 0 && ['lbs','lb'].includes(String(parts[unitCol] ?? '').trim().toLowerCase()) ? 'lbs' : 'kg';
     const rawReps = repsCol < 0 ? '' : String(parts[repsCol] ?? '').trim();
     const note = noteCol < 0 ? '' : String(parts[noteCol] ?? '');
     const importedId=exIdCol<0?'':String(parts[exIdCol]??'').trim();
@@ -3286,7 +3358,7 @@ function parseCSVLogs(text) {
     }
     if (note !== '') logs[date][exId].note = note;
   });
-  return logs;
+  return {logs,weightLogs,weightUnit};
 }
 function mergeImportedLogs(existing, incoming) {
   const merged = {...(existing || {})};
@@ -3347,7 +3419,7 @@ function createTextBackup() {
   weightDates.forEach(date=>{
     const value=Number(S.weightLogs[date]);
     const display=S.weightUnit==='lbs'?value*2.2046226218:value;
-    lines.push(`${date}: ${display.toFixed(1)} ${S.weightUnit||'kg'}`);
+    lines.push(`${date}: ${display.toFixed(3)} ${S.weightUnit||'kg'}`);
   });
   lines.push(
     '',
@@ -3360,8 +3432,39 @@ function createTextBackup() {
   return lines.join('\n')+'\n';
 }
 
+function parseTXTWeightLogs(text) {
+  const weightLogs={};
+  const lines=String(text??'').replace(/^\uFEFF/,'').split(/\r?\n/);
+  let inWeightSection=false,sectionUnit='kg',weightUnit=null;
+  lines.forEach(line=>{
+    const trimmed=line.trim();
+    const heading=trimmed.match(/^BODY WEIGHT(?:\s*\((kg|lbs?|lb)\))?\s*$/i);
+    if(heading){
+      inWeightSection=true;
+      const unit=String(heading[1]||'kg').toLowerCase();
+      sectionUnit=unit==='lb'||unit==='lbs'?'lbs':'kg';
+      return;
+    }
+    if(!inWeightSection) return;
+    if(/^FULL RESTORE DATA\b|^LIFTLOG_BACKUP_JSON_BEGIN\b/i.test(trimmed)){inWeightSection=false;return;}
+    if(!trimmed) return;
+    const entry=trimmed.match(/^(\d{4}-\d{2}-\d{2})\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*(kg|lbs?|lb)?\s*$/i);
+    if(!entry) throw new Error('TXT body-weight entry is malformed: '+trimmed+'.');
+    const date=entry[1],value=Number(entry[2]),unitText=String(entry[3]||sectionUnit).toLowerCase();
+    const inputUnit=unitText==='lb'||unitText==='lbs'?'lbs':'kg';
+    if(!isValidISODate(date)) throw new Error('TXT body-weight entry has an invalid date: '+date+'.');
+    if(!Number.isFinite(value)||value<=0||value>1000) throw new Error('TXT body-weight entry for '+date+' must be greater than 0 and no more than 1000.');
+    const kg=inputUnit==='lbs'?value/LB_PER_KG:value;
+    if(!Number.isFinite(kg)||kg<=0||kg>1000) throw new Error('TXT body-weight entry for '+date+' is outside the supported range.');
+    weightLogs[date]=Math.round(kg*1000)/1000;
+    weightUnit=inputUnit;
+  });
+  return {weightLogs,weightUnit};
+}
+
 function parseTXTLogs(text) {
   const logs = {};
+  const parsedWeights=parseTXTWeightLogs(text);
   const dateBlocks = text.split(/(?:^|\r?\n)DATE:\s*/i);
   dateBlocks.forEach(block => {
     const lines = block.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
@@ -3401,7 +3504,7 @@ function parseTXTLogs(text) {
       }
     }
   });
-  return logs;
+  return {logs,weightLogs:parsedWeights.weightLogs,weightUnit:parsedWeights.weightUnit};
 }
 
 let timerDrag = null;
@@ -4999,10 +5102,14 @@ document.addEventListener('click', e => {
   }
   else if(a==='addset'){
     const ex = resolveLogExercise(id);
-    const rec = (S.logs[ui.date] && S.logs[ui.date][id]) || {sets:[], note:''};
+    if(!S.logs[ui.date]) S.logs[ui.date]={};
+    const rec = S.logs[ui.date][id] || (S.logs[ui.date][id]={sets:[],note:''});
     const currentN = visibleSetCount(ex, rec, ui.date);
     haptic(10);
-    ui.extra[setCountKey(id, ui.date)] = currentN + 1;
+    rec.setCountOverride=currentN+1;
+    ui.extra[setCountKey(id, ui.date)] = rec.setCountOverride;
+    saveState(0);
+    updateWorkoutProgress();
     animateAddSetRow(id);
   }
   else if(a==='removeset'){
@@ -5013,11 +5120,15 @@ document.addEventListener('click', e => {
     haptic(10);
     const nextN = currentN - 1;
     const remove=()=>{
+      if(!S.logs[ui.date]) S.logs[ui.date]={};
+      const savedRec=S.logs[ui.date][id]||(S.logs[ui.date][id]={sets:[],note:''});
+      savedRec.setCountOverride=nextN;
       ui.extra[setCountKey(id, ui.date)] = nextN;
-      if(S.logs[ui.date] && S.logs[ui.date][id] && Array.isArray(S.logs[ui.date][id].sets) && S.logs[ui.date][id].sets.length > nextN){
-        S.logs[ui.date][id].sets = S.logs[ui.date][id].sets.slice(0, nextN);
-        saveState(0);
+      if(Array.isArray(savedRec.sets) && savedRec.sets.length > nextN){
+        savedRec.sets = savedRec.sets.slice(0, nextN);
       }
+      saveState(0);
+      updateWorkoutProgress();
       animateRemoveSetRow(id, nextN);
     };
     const trailing=rec.sets&&rec.sets[currentN-1];
@@ -5086,16 +5197,22 @@ document.addEventListener('click', e => {
     document.getElementById('bkmsg').textContent=recorded?'Backup saved and reminder reset.':'Backup saved, but the reminder date could not be stored in this browser.';
   }
   else if(a==='expcsv'){
-    const rows=[['Date','Exercise','Exercise ID','Set','Weight','Reps','Note','Unit']];
+    const rows=[['Date','Exercise','Exercise ID','Set','Weight','Reps','Note','Unit','Record Type']];
     Object.keys(S.logs||{}).sort().forEach(d=>{
       Object.keys(S.logs[d]||{}).forEach(exId=>{
         const r=S.logs[d][exId]||{};
         const exName=exerciseNameById(exId);
         const sets=Array.isArray(r.sets)?r.sets:[];
         const unit=unitForExercise(exId);
-        if(!sets.length){ rows.push([d,exName,exId,'','','','',unit]); return; }
-        sets.forEach((set,idx)=>rows.push([d,exName,exId,idx+1,set?.w===''||set?.w==null?'':formatExerciseWeight(exId,set.w),set?.r ?? '',r.note||'',unit]));
+        if(!sets.length){ rows.push([d,exName,exId,'','','','',unit,'workout']); return; }
+        sets.forEach((set,idx)=>rows.push([d,exName,exId,idx+1,set?.w===''||set?.w==null?'':formatExerciseWeight(exId,set.w),set?.r ?? '',r.note||'',unit,'workout']));
       });
+    });
+    const weightUnit=S.weightUnit==='lbs'?'lbs':'kg';
+    Object.keys(S.weightLogs||{}).sort().forEach(date=>{
+      const kg=Number(S.weightLogs[date]);
+      const display=weightUnit==='lbs'?kg*LB_PER_KG:kg;
+      rows.push([date,'','','',Number.isFinite(display)?display.toFixed(3):'','','',weightUnit,'body_weight']);
     });
     const csv=rows.map(row=>row.map(csvEscape).join(',')).join('\r\n')+'\r\n';
     const name=exportFileName('csv','csv');
@@ -5319,24 +5436,47 @@ document.addEventListener('change', e => {
     const file = e.target.files[0];
     if(!file) return;
     const reader = new FileReader();
+    const reportReadFailure=message=>{
+      console.error(reader.error||message);
+      const bkmsg=document.getElementById('bkmsg');
+      if(bkmsg) bkmsg.textContent='Import failed: '+message;
+      showAppAlert('Import failed: '+message);
+      e.target.value='';
+    };
+    reader.onerror=()=>reportReadFailure(reader.error&&reader.error.message||'could not read file.');
+    reader.onabort=()=>reportReadFailure('file reading was cancelled.');
     reader.onload = function(evt){
       const content = evt.target.result;
+      const previousArchived=S.archivedExercises?{...S.archivedExercises}:null;
+      let importCommitted=false;
       try{
         const backupStart='LIFTLOG_BACKUP_JSON_BEGIN';
         const backupEnd='LIFTLOG_BACKUP_JSON_END';
         if(content.includes(backupStart) && content.includes(backupEnd)){
           const payload=content.split(backupStart)[1].split(backupEnd)[0].trim();
           applyImportedState(JSON.parse(payload));
+          importCommitted=true;
         } else if(file.name.toLowerCase().endsWith('.json') || content.trim().startsWith('{')){
           applyImportedState(JSON.parse(content));
+          importCommitted=true;
         } else if(file.name.toLowerCase().endsWith('.csv')) {
           const parsed = parseCSVLogs(content);
-          S.logs = mergeImportedLogs(S.logs, parsed);
-          normalizeLogNumbers(S);
+          applyImportedState({
+            ...S,
+            logs:mergeImportedLogs(S.logs,parsed.logs),
+            weightLogs:{...(S.weightLogs||{}),...parsed.weightLogs},
+            weightUnit:parsed.weightUnit||S.weightUnit
+          });
+          importCommitted=true;
         } else {
           const parsed = parseTXTLogs(content);
-          S.logs = mergeImportedLogs(S.logs, parsed);
-          normalizeLogNumbers(S);
+          applyImportedState({
+            ...S,
+            logs:mergeImportedLogs(S.logs,parsed.logs),
+            weightLogs:{...(S.weightLogs||{}),...parsed.weightLogs},
+            weightUnit:parsed.weightUnit||S.weightUnit
+          });
+          importCommitted=true;
         }
         pruneArchivedExercises();
         saveState(0);
@@ -5344,6 +5484,10 @@ document.addEventListener('change', e => {
         document.getElementById('bkmsg').textContent = 'Data imported successfully!';
         showAppAlert('Data imported successfully!');
       }catch(err){
+        if(!importCommitted){
+          if(previousArchived) S.archivedExercises=previousArchived;
+          else delete S.archivedExercises;
+        }
         console.error(err);
         document.getElementById('bkmsg').textContent = 'Import failed: ' + (err.message || 'could not parse file.');
         showAppAlert('Import failed: ' + (err.message || 'could not parse file.'));
@@ -5357,9 +5501,9 @@ document.addEventListener('change', e => {
 let errorDialogOpen=false;
 function showCrashDialog(message, detail=''){
   if(errorDialogOpen) return;
-  errorDialogOpen=true;
   const box=document.getElementById('error-box');
   if(!box) return;
+  errorDialogOpen=true;
   box.innerHTML=`<div class="error-overlay"><div class="error-card"><h2>⚠️ Something went wrong</h2><p>Lift Log hit an unexpected error. Your saved workouts have not been deliberately changed. Try returning to Home or reloading the app.</p><div><b>${esc(String(message||'Unexpected error'))}</b></div><div class="error-detail">${esc(String(detail||''))}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn acc" id="error-home">Go to Home</button><button class="btn" id="error-reload">Reload app</button><button class="btn" id="error-dismiss">Dismiss</button></div></div></div>`;
   document.getElementById('error-home').onclick=()=>{errorDialogOpen=false;box.innerHTML='';try{ui.tab='home';render()}catch(e){showCrashDialog('Could not return Home',e&&e.stack||e)}};
   document.getElementById('error-reload').onclick=()=>location.reload();
@@ -5372,6 +5516,84 @@ window.addEventListener('unhandledrejection', e=>{
   const reason=e.reason;
   showCrashDialog('An operation failed',reason&&(reason.stack||reason.message)||String(reason||''));
 });
+
+const pullRefresh={startY:null,active:false,ready:false,loading:false,timer:null};
+const pullRefreshThreshold=76;
+function resetPullRefresh(){
+  const indicator=document.getElementById('pull-refresh');
+  if(pullRefresh.timer){clearTimeout(pullRefresh.timer);pullRefresh.timer=null;}
+  pullRefresh.startY=null;
+  pullRefresh.active=false;
+  pullRefresh.ready=false;
+  pullRefresh.loading=false;
+  if(!indicator) return;
+  indicator.classList.remove('visible','dragging','ready','spinning','error');
+  indicator.style.setProperty('--pull-y','0px');
+  indicator.setAttribute('aria-hidden','true');
+  const progress=document.getElementById('pull-refresh-progress');
+  if(progress) progress.style.strokeDashoffset='100';
+}
+function finishPullRefresh(){
+  if(!pullRefresh.active) return;
+  const indicator=document.getElementById('pull-refresh');
+  const label=document.getElementById('pull-refresh-label');
+  pullRefresh.active=false;
+  pullRefresh.startY=null;
+  if(!indicator||!label) return;
+  if(!pullRefresh.ready){
+    resetPullRefresh();
+    return;
+  }
+  pullRefresh.loading=true;
+  indicator.classList.remove('dragging');
+  indicator.classList.add('visible','ready','spinning');
+  indicator.setAttribute('aria-hidden','false');
+  indicator.style.setProperty('--pull-y',pullRefreshThreshold+'px');
+  label.textContent='Refreshing…';
+  if(_saveTimer){clearTimeout(_saveTimer);_saveTimer=null;}
+  saveStateImmediate();
+  if(!storageOK){
+    pullRefresh.loading=false;
+    indicator.classList.remove('spinning','ready');
+    indicator.classList.add('error');
+    label.textContent='Couldn’t save changes';
+    pullRefresh.timer=setTimeout(resetPullRefresh,1800);
+    return;
+  }
+  pullRefresh.timer=setTimeout(()=>location.reload(),350);
+}
+function onPullRefreshStart(event){
+  if(pullRefresh.loading||event.touches.length!==1||window.scrollY>1) return;
+  const target=event.target;
+  if(!target.closest||!target.closest('#main')||target.closest('button,a,input,select,textarea,[contenteditable="true"],.weight-dial-wrap')) return;
+  pullRefresh.startY=event.touches[0].clientY;
+  pullRefresh.active=true;
+  pullRefresh.ready=false;
+}
+function onPullRefreshMove(event){
+  if(!pullRefresh.active||pullRefresh.startY===null) return;
+  if(event.touches.length!==1){resetPullRefresh();return;}
+  const distance=event.touches[0].clientY-pullRefresh.startY;
+  if(distance<=0){resetPullRefresh();return;}
+  if(window.scrollY>1){resetPullRefresh();return;}
+  event.preventDefault();
+  const pull=Math.min(110,distance*.65);
+  const indicator=document.getElementById('pull-refresh');
+  const progress=document.getElementById('pull-refresh-progress');
+  const label=document.getElementById('pull-refresh-label');
+  if(!indicator||!progress||!label) return;
+  pullRefresh.ready=pull>=pullRefreshThreshold;
+  indicator.classList.add('visible','dragging');
+  indicator.classList.toggle('ready',pullRefresh.ready);
+  indicator.setAttribute('aria-hidden','false');
+  indicator.style.setProperty('--pull-y',pull+'px');
+  progress.style.strokeDashoffset=String(100-Math.min(100,pull/pullRefreshThreshold*100));
+  label.textContent=pullRefresh.ready?'Release to refresh':'Pull to refresh';
+}
+document.addEventListener('touchstart',onPullRefreshStart,{passive:true});
+document.addEventListener('touchmove',onPullRefreshMove,{passive:false});
+document.addEventListener('touchend',finishPullRefresh,{passive:true});
+document.addEventListener('touchcancel',resetPullRefresh,{passive:true});
 
 window.onload = function(){
   S = loadState();
@@ -5402,4 +5624,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.12.1 -->
+</html><!-- END OF FILE — Lift Log version 1.12.4 -->
