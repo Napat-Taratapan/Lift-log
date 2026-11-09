@@ -1,6 +1,22 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.12.6
+  Current version: 1.12.10
+  Version 1.12.10 change log:
+  - Keep Push-Pull-Legs unchanged when adding a one-day exercise from the workout log.
+  - Preserve shared-name history when renaming Custom Split exercises.
+  - Remove the 60-day streak ceiling and persist off-plan exercise reordering.
+  - Support single-number rep targets and fix PR-modal and tip-dismiss interactions.
+
+  Version 1.12.9 change log:
+  - Show crash reasons, error locations, stack details, app context, and a best-effort likely-cause diagnosis.
+
+  Version 1.12.8 change log:
+  - Animate the body-weight trend point and its connected chart area after a weigh-in is saved.
+
+  Version 1.12.7 change log:
+  - Preserve exercise history and names when resetting or replacing the Custom Split.
+  - Keep note-only exercise history visible when exercises are removed.
+
   Version 1.12.6 change log:
   - Refine pull-to-refresh with a text-free ring, screen movement, and increasing pull resistance.
 
@@ -167,8 +183,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Lift Log">
 <meta name="theme-color" content="#141413">
-<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.12.6">
-<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.12.6">
+<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.12.10">
+<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.12.10">
 <title>Lift Log - Workout & Progress Tracker</title>
 <style>
 :root{
@@ -230,6 +246,10 @@ body{min-height:calc(100vh - env(safe-area-inset-top,0px) - env(safe-area-inset-
 #error-box .error-overlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px}
 #error-box .error-card{width:min(100%,420px);background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:0 18px 60px #0008}
 #error-box .error-card h2{margin:0 0 8px;font-size:20px}
+#error-box .error-suspect{border-left:3px solid var(--acc);padding:8px 10px;margin:12px 0;background:var(--accbg);font-size:13px}
+#error-box .error-context{font-size:12px;color:var(--mute);margin:8px 0}
+#error-box .error-card details{margin:10px 0}
+#error-box .error-card summary{cursor:pointer;font-size:13px}
 #error-box .error-detail{font-size:12px;opacity:.8;white-space:pre-wrap;overflow-wrap:anywhere;max-height:100px;overflow:auto;margin:10px 0}
 
 /* Smooth Directional Tab Transitions */
@@ -1610,7 +1630,10 @@ function pruneArchivedExercises(){
   if(!S.archivedExercises) return false;
   let changed = false;
   Object.keys(S.archivedExercises).forEach(id=>{
-    const stillHasHistory = Object.values(S.logs||{}).some(day=>day&&day[id]&&hasExerciseHistory(day[id]));
+    const archived=S.archivedExercises[id];
+    const draftDate=archived&&archived.sessionOnlyDate;
+    const stillHasHistory = (isValidISODate(draftDate)&&(S.logs||{})[draftDate]&&(S.logs||{})[draftDate][id]) ||
+      Object.values(S.logs||{}).some(day=>day&&day[id]&&hasExerciseHistory(day[id]));
     if(!stillHasHistory){
       delete S.archivedExercises[id];
       changed = true;
@@ -1622,10 +1645,23 @@ function pruneArchivedExercises(){
   return changed;
 }
 
+function archiveExerciseIfHasHistory(ex){
+  if(!ex||!Object.values(S.logs||{}).some(log=>log&&log[ex.id]&&hasExerciseHistory(log[ex.id]))) return false;
+  if(!S.archivedExercises) S.archivedExercises={};
+  S.archivedExercises[ex.id]={name:ex.name,sets:ex.sets,range:ex.range};
+  return true;
+}
+function archivePlanExercisesWithHistory(plan){
+  (plan||[]).forEach(day=>(day.ex||[]).forEach(archiveExerciseIfHasHistory));
+}
+
 function calcStreak(){
   if(_derived.streak!==null) return _derived.streak;
+  const dates=Object.keys(S.logs||{}).filter(isValidISODate).sort();
+  if(!dates.length){_derived.streak=0;return 0;}
+  const oldestLogDate=dates[0];
   let streak=0, d=new Date();
-  for(let i=0;i<60;i++){
+  for(let i=0;iso(d)>=oldestLogDate;i++){
     const ds=iso(d);
     if(dayHasWork(ds)){ streak++; }
     else {
@@ -2086,7 +2122,7 @@ function showPRModal(w, r, rm){
   playAlarm();
   haptic([100,50,100,50,200]);
   document.getElementById('pr-modal-box').innerHTML = `
-    <div class="pr-modal-overlay" onclick="this.remove()">
+    <div class="pr-modal-overlay" onclick="if(event.target===this)this.remove()">
       <div class="pr-modal">
         <h2><svg class="svg-icon" style="width:28px;height:28px;color:var(--acc)" viewBox="0 0 24 24"><path d="M6 9 L 12 3 L 18 9"/><path d="M12 3V21"/></svg> NEW PR RECORD!</h2>
         <p><b>${w} kg × ${r} reps</b></p>
@@ -2162,7 +2198,7 @@ function triggerCounterAnimations(){
   });
 }
 
-function render(skipAnim = false){
+function render(skipAnim = false, weightChartAnimation = null){
   closeExerciseContextMenu();
   const t=ui.tab;
   const tabChanged=lastRenderedTab!==t;
@@ -2223,8 +2259,11 @@ function render(skipAnim = false){
   const app=document.getElementById('app');
   const oldTabs=(wasLogTab&&isLogTab)?app.querySelector('.tabs'):null;
   const oldTabsLeft=oldTabs?oldTabs.scrollLeft:null;
-  app.innerHTML={home:vHome,today:vLog,log:vLog,cal:vCal,prog:vProg,weight:vWeight,set:vSet}[t]();
-  if(t==='weight') initWeightDial();
+  app.innerHTML=t==='weight'?vWeight(weightChartAnimation):{home:vHome,today:vLog,log:vLog,cal:vCal,prog:vProg,set:vSet}[t]();
+  if(t==='weight'){
+    initWeightDial();
+    if(weightChartAnimation) animateWeightChartPoint();
+  }
   if(isLogTab){
     const tabsEl=app.querySelector('.tabs');
     if(tabsEl){
@@ -2625,9 +2664,9 @@ function suggestedRestSeconds(ex){
 }
 function exerciseRecommendation(ex, beforeDate){
   if(!ex || !isValidISODate(beforeDate)) return null;
-  const bounds=String(ex.range||'').match(/(\d+(?:\.\d+)?)\s*(?:-|to)\s*(\d+(?:\.\d+)?)/i);
+  const bounds=String(ex.range||'').trim().match(/^(\d+(?:\.\d+)?)(?:\s*(?:-|to)\s*(\d+(?:\.\d+)?))?$/i);
   if(!bounds) return null;
-  const low=Number(bounds[1]), high=Number(bounds[2]);
+  const low=Number(bounds[1]), high=Number(bounds[2]||bounds[1]);
   if(!Number.isFinite(low)||!Number.isFinite(high)||low<=0||high<low) return null;
   const planned=Math.max(1,Math.round(Number(ex.sets)||1));
   const ids=relatedIds(ex.id), dates=Object.keys(S.logs||{}).filter(d=>isValidISODate(d)&&d<beforeDate).sort().reverse();
@@ -2721,7 +2760,8 @@ function renderLogExercisesForDate(dStr){
   
   const loggedToday = S.logs[dStr] || {};
   const scheduledIds = new Set(d.ex.map(e => e.id));
-  const extraIds = Object.keys(loggedToday).filter(id => !scheduledIds.has(id) && hasExerciseHistory(loggedToday[id]));
+  const extraIds = Object.keys(loggedToday).filter(id => !scheduledIds.has(id) &&
+    (hasExerciseHistory(loggedToday[id]) || S.archivedExercises&&S.archivedExercises[id]));
   
   const allEx = exList();
   const extraEx = extraIds.map(id => {
@@ -2944,36 +2984,87 @@ function chart(ds,v,type,unit='kg'){
   </div>`;
 }
 
-function renderWeightChart(entries){
+function renderWeightChart(entries, animation=null){
   if(!entries.length) return '<div class="empty">Add your first weigh-in to start your chart.</div>';
   const W=600,H=220,p=42;
   const values=entries.map(entry=>bodyWeightFromKg(entry.kg));
   let mn=Math.min(...values),mx=Math.max(...values);
+  const animationIndex=animation&&!(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches)
+    ?entries.findIndex(entry=>entry.date===animation.date):-1;
+  const previousDisplay=animationIndex>=0&&Number.isFinite(animation.previousKg)
+    ?bodyWeightFromKg(animation.previousKg):null;
+  if(previousDisplay!==null){mn=Math.min(mn,previousDisplay);mx=Math.max(mx,previousDisplay);}
   if(mn===mx){const pad=Math.max(0.5,mn*0.01);mn=Math.max(0,mn-pad);mx+=pad;}
   else{const pad=(mx-mn)*0.18;mn=Math.max(0,mn-pad);mx+=pad;}
   const first=entries[0].kg,last=entries[entries.length-1].kg;
   const color=last<first?'var(--up)':last>first?'var(--down)':'var(--mute)';
   const X=i=>entries.length===1?(W+p-12)/2:p+i*(W-p-12)/(entries.length-1);
   const Y=value=>H-30-(value-mn)*(H-54)/(mx-mn);
-  const points=entries.map((entry,i)=>X(i)+','+Y(values[i])).join(' ');
-  const areaPoints=`${X(0)},${H-30} ${points} ${X(entries.length-1)},${H-30}`;
-  const gradient=entries.length>1?`<defs><linearGradient id="weightTrendFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.35"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs><polygon points="${areaPoints}" fill="url(#weightTrendFill)"/>`:'';
+  const baseline=H-30;
+  const startY=animationIndex<0?null:previousDisplay===null?baseline:Y(previousDisplay);
+  const chartPoints=entries.map((entry,i)=>[X(i),Y(values[i])]);
+  const initialPoints=chartPoints.map(([x,y],i)=>x+','+(i===animationIndex?startY:y)).join(' ');
+  const animatedAreaPoints=`${X(0)},${baseline} ${initialPoints} ${X(entries.length-1)},${baseline}`;
+  const gradient=entries.length>1?`<defs><linearGradient id="weightTrendFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.35"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs><polygon points="${animatedAreaPoints}" fill="url(#weightTrendFill)"/>`:'';
   return `<div style="position:relative;touch-action:pan-y">
-    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Body weight trend chart" style="width:100%;touch-action:pan-y">
+    <svg data-weight-chart data-weight-baseline="${baseline}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Body weight trend chart" style="width:100%;touch-action:pan-y">
       <line x1="${p}" y1="${Y(mn)}" x2="${W-12}" y2="${Y(mn)}" style="stroke:var(--line)"/>
       <line x1="${p}" y1="${Y(mx)}" x2="${W-12}" y2="${Y(mx)}" style="stroke:var(--line)"/>
       <text x="4" y="${Y(mx)+4}" font-size="11" style="fill:var(--mute)">${mx.toFixed(1)}</text>
       <text x="4" y="${Y(mn)+4}" font-size="11" style="fill:var(--mute)">${mn.toFixed(1)}</text>
       ${gradient}
-      ${entries.length>1?`<polyline points="${points}" fill="none" stroke="${color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>`:''}
-      ${entries.map((entry,i)=>`<circle cx="${X(i)}" cy="${Y(values[i])}" r="4.5" fill="${color}"><title>${fmt(entry.date)}: ${values[i].toFixed(1)} ${S.weightUnit}</title></circle>`).join('')}
+      ${entries.length>1?`<polyline data-weight-line points="${initialPoints}" fill="none" stroke="${color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>`:''}
+      ${entries.map((entry,i)=>`<circle data-weight-point="${i}" data-final-y="${Y(values[i])}"${i===animationIndex?` data-start-y="${startY}" data-new-point="${previousDisplay===null?'true':'false'}"`:''} cx="${X(i)}" cy="${i===animationIndex?startY:Y(values[i])}" r="${i===animationIndex&&previousDisplay===null?'2.5':'4.5'}" fill="${color}"${i===animationIndex&&previousDisplay===null?' opacity="0.2"':''}><title>${fmt(entry.date)}: ${values[i].toFixed(1)} ${S.weightUnit}</title></circle>`).join('')}
       <text x="${p}" y="${H-6}" font-size="11" style="fill:var(--mute)">${esc(fmt(entries[0].date))}</text>
       <text x="${W-12}" y="${H-6}" font-size="11" text-anchor="end" style="fill:var(--mute)">${esc(fmt(entries[entries.length-1].date))}</text>
     </svg>
   </div>${entries.length===1?'<div class="meta">Add another weigh-in on a different date to see your trend.</div>':''}`;
 }
 
-function vWeight(){
+function animateWeightChartPoint(){
+  const svg=document.querySelector('#app [data-weight-chart]');
+  if(!svg||window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const point=svg.querySelector('[data-start-y]');
+  if(!point) return;
+  const points=[...svg.querySelectorAll('[data-weight-point]')].map(el=>({
+    x:Number(el.getAttribute('cx')),
+    y:Number(el.getAttribute('data-final-y'))
+  }));
+  const index=Number(point.getAttribute('data-weight-point'));
+  const startY=Number(point.getAttribute('data-start-y'));
+  const targetY=points[index]&&points[index].y;
+  if(!Number.isInteger(index)||!Number.isFinite(startY)||!Number.isFinite(targetY)) return;
+  const line=svg.querySelector('[data-weight-line]');
+  const area=svg.querySelector('polygon');
+  const baseline=Number(svg.getAttribute('data-weight-baseline'));
+  const isNew=point.getAttribute('data-new-point')==='true';
+  let startTime=null;
+  const duration=420;
+  const frame=now=>{
+    if(!svg.isConnected) return;
+    if(startTime===null) startTime=now;
+    const progress=Math.min(1,(now-startTime)/duration);
+    const eased=1-Math.pow(1-progress,3);
+    const y=startY+(targetY-startY)*eased;
+    point.setAttribute('cy',String(y));
+    if(isNew){
+      point.setAttribute('r',String(2.5+2*eased));
+      point.setAttribute('opacity',String(0.2+0.8*eased));
+    }
+    const currentPoints=points.map((item,i)=>item.x+','+(i===index?y:item.y)).join(' ');
+    if(line) line.setAttribute('points',currentPoints);
+    if(area) area.setAttribute('points',points.length>1?`${points[0].x},${baseline} ${currentPoints} ${points[points.length-1].x},${baseline}`:'');
+    if(progress<1) requestAnimationFrame(frame);
+    else{
+      point.setAttribute('cy',String(targetY));
+      if(line) line.setAttribute('points',points.map(item=>item.x+','+item.y).join(' '));
+      if(area&&points.length>1) area.setAttribute('points',`${points[0].x},${baseline} ${points.map(item=>item.x+','+item.y).join(' ')} ${points[points.length-1].x},${baseline}`);
+    }
+  };
+  requestAnimationFrame(frame);
+}
+
+function vWeight(animation=null){
   const entries=Object.entries(S.weightLogs||{}).map(([date,kg])=>({date,kg:Number(kg)})).sort((a,b)=>a.date.localeCompare(b.date));
   const latest=entries.length?entries[entries.length-1]:null;
   const previous=entries.length>1?entries[entries.length-2]:null;
@@ -3009,7 +3100,7 @@ function vWeight(){
   </div>
   <div class="card">
     <h3><span>Weight Trend</span></h3>
-    <div style="margin-top:8px">${renderWeightChart(entries)}</div>
+    <div style="margin-top:8px">${renderWeightChart(entries,animation)}</div>
   </div>
   <div class="card wrap">
     <h3><span>Weigh-in History</span></h3>
@@ -3252,7 +3343,7 @@ function vSet(){
   </div>`;
 
   h+='<div class="card"><h3>App updates</h3><div class="meta" style="margin:6px 0 10px">See what changed in each version.</div><button type="button" class="btn small acc" data-act="whatsnew">What’s New</button></div>';
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.12.6</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.12.10</div></div>`;
 
   return h;
 }
@@ -3961,9 +4052,25 @@ function finishExerciseDrag(e) {
 
     const byId = new Map(day.ex.map(ex => [ex.id, ex]));
     const planIdsInOrder = ids.filter(id => byId.has(id));
-
+    let changed=false;
     if (planIdsInOrder.length === day.ex.length && new Set(planIdsInOrder).size === planIdsInOrder.length) {
-      day.ex = planIdsInOrder.map(id => byId.get(id));
+      const reorderedPlan=planIdsInOrder.map(id => byId.get(id));
+      changed=reorderedPlan.some((exercise,index)=>exercise.id!==day.ex[index].id)||changed;
+      day.ex=reorderedPlan;
+    }
+    const offPlanIds=ids.filter(id=>!byId.has(id));
+    const log=S.logs[ui.date]||{};
+    const existingOffPlanOrder=Object.keys(log).filter(id=>offPlanIds.includes(id));
+    if(offPlanIds.length>1&&offPlanIds.some((id,index)=>id!==existingOffPlanOrder[index])){
+      const order=new Map(offPlanIds.map((id,index)=>[id,index]));
+      S.logs[ui.date]=Object.fromEntries(Object.entries(log).sort((a,b)=>{
+        const ai=order.has(a[0])?order.get(a[0]):Infinity;
+        const bi=order.has(b[0])?order.get(b[0]):Infinity;
+        return ai-bi;
+      }));
+      changed=true;
+    }
+    if(changed){
       saveState(0);
       render(true);
     }
@@ -4404,11 +4511,7 @@ function performRemoveExercise(id){
     confirmLabel: 'Remove',
     danger: true,
     onConfirm: ()=>{
-      const hasHistory = Object.values(S.logs||{}).some(log => log && log[id] && filled(log[id]));
-      if(hasHistory){
-        if(!S.archivedExercises) S.archivedExercises = {};
-        S.archivedExercises[id] = { name: ex.name, sets: ex.sets, range: ex.range };
-      }
+      archiveExerciseIfHasHistory(ex);
       day.ex = day.ex.filter(item => item.id !== id);
       delete ui.extra[id];
       if(ui.prog === id) ui.prog = null;
@@ -4671,7 +4774,7 @@ function renderExLongpressTipHtml(){
   if(!shouldShowExLongpressTip()) return '';
   return '<div class="ex-tip" id="ex-longpress-tip" role="status">'+
     '<div style="flex:1"><b>Tip</b>Hold an exercise card for Last session, Suggested weight, Units, View progress, Rename, and Remove.</div>'+
-    '<button type="button" class="ex-tip-dismiss" data-act="dismiss-ex-tip" aria-label="Dismiss tip">?</button>'+
+    '<button type="button" class="ex-tip-dismiss" data-act="dismiss-ex-tip" aria-label="Dismiss tip">×</button>'+
   '</div>';
 }
 
@@ -4759,10 +4862,12 @@ document.addEventListener('click', e => {
     const kg=bodyWeightToKg(value);
     if(!Number.isFinite(kg)||kg<=0||kg>1000){showAppAlert('That weight is outside the supported range.');return;}
     if(!S.weightLogs) S.weightLogs={};
-    S.weightLogs[date]=Math.round(kg*1000)/1000;
+    const previousKg=Object.prototype.hasOwnProperty.call(S.weightLogs,date)?Number(S.weightLogs[date]):null;
+    const savedKg=Math.round(kg*1000)/1000;
+    S.weightLogs[date]=savedKg;
     ui.weightEditDate=null;
     saveState(0);
-    render(true);
+    render(true,previousKg===savedKg?null:{date,previousKg});
   }
   else if(a==='edit-weight'){
     if(!isValidISODate(v)||S.weightLogs[v]===undefined) return;
@@ -4863,14 +4968,7 @@ document.addEventListener('click', e => {
       confirmLabel: 'Delete',
       danger: true,
       onConfirm: ()=>{
-        // Archive exercises that still have history
-        (day.ex||[]).forEach(ex=>{
-          const hasHistory = Object.values(S.logs||{}).some(log=>log&&log[ex.id]&&filled(log[ex.id]));
-          if(hasHistory){
-            if(!S.archivedExercises) S.archivedExercises = {};
-            S.archivedExercises[ex.id] = { name: ex.name, sets: ex.sets, range: ex.range };
-          }
-        });
+        archivePlanExercisesWithHistory([day]);
         plan.splice(di, 1);
         if(ui.custEditDay === di) ui.custEditDay = null;
         else if(ui.custEditDay != null && ui.custEditDay > di) ui.custEditDay--;
@@ -4940,11 +5038,7 @@ document.addEventListener('click', e => {
     const plan = getCustomPlan();
     if(!plan[di] || !plan[di].ex || ei<0 || ei>=plan[di].ex.length) return;
     const ex = plan[di].ex[ei];
-    const hasHistory = Object.values(S.logs||{}).some(log=>log&&log[ex.id]&&filled(log[ex.id]));
-    if(hasHistory){
-      if(!S.archivedExercises) S.archivedExercises = {};
-      S.archivedExercises[ex.id] = { name: ex.name, sets: ex.sets, range: ex.range };
-    }
+    archiveExerciseIfHasHistory(ex);
     plan[di].ex.splice(ei, 1);
     pruneArchivedExercises();
     saveState(0);
@@ -4970,6 +5064,7 @@ document.addEventListener('click', e => {
       confirmLabel: 'Reset',
       danger: true,
       onConfirm: ()=>{
+        archivePlanExercisesWithHistory(S.routines.custom);
         S.routines.custom = buildPlan(CUSTOM_ROUTINE);
         ui.custEditDay = null;
         saveState(0);
@@ -4985,6 +5080,7 @@ document.addEventListener('click', e => {
       danger: false,
       onConfirm: ()=>{
         const src = S.routines.ppl || buildPlan(PPL_ROUTINE);
+        archivePlanExercisesWithHistory(S.routines.custom);
         S.routines.custom = clonePlanWithFreshIds(src);
         ui.custEditDay = null;
         saveState(0);
@@ -5083,9 +5179,11 @@ document.addEventListener('click', e => {
   }
   else if(a==='addexercise'){
     const day=getPlan()[ui.day];
+    const addToRoutine=S.activeRoutine==='custom';
     if(!day){showAppAlert('This date is a rest day with no workout in your routine, so there is nowhere to add an exercise. Open a scheduled workout day and add it there.');return;}
     showAppPrompt({
       title:'Add exercise to workout',
+      message:addToRoutine?'This exercise will be added to the selected Custom Split day.':'This exercise will be added to this workout only. Your Push-Pull-Legs preset will not be changed.',
       fields:[
         {label:'Exercise name',value:'',placeholder:'Exercise name'},
         {label:'Working sets',type:'number',value:3,min:1,max:20,step:1},
@@ -5099,7 +5197,15 @@ document.addEventListener('click', e => {
         if(!clean){showAppAlert('Please enter an exercise name.');return;}
         if(day.ex.some(ex=>ex.name.toLowerCase()===clean.toLowerCase())){showAppAlert('That exercise is already in this workout.');return;}
         if(!Number.isInteger(sets)||sets<1||sets>20){showAppAlert('Enter a number of sets from 1 to 20.');return;}
-        day.ex.push({id:'custom_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),name:clean,sets,range:cleanRange});
+        if(addToRoutine){
+          day.ex.push(newCustomExercise(clean,sets,cleanRange));
+        }else{
+          const id=newExerciseId();
+          if(!S.archivedExercises) S.archivedExercises={};
+          S.archivedExercises[id]={name:clean,sets,range:cleanRange,sessionOnlyDate:ui.date};
+          if(!S.logs[ui.date]) S.logs[ui.date]={};
+          S.logs[ui.date][id]={sets:Array.from({length:sets},()=>({w:'',r:''})),note:''};
+        }
         saveState(0);
         render();
       }
@@ -5249,9 +5355,6 @@ document.addEventListener('input', e => {
     }
     if(!plan[di].ex || !Number.isInteger(ei) || ei<0 || ei>=plan[di].ex.length) return;
     if(cust === 'exname'){
-      const name = el.value.trim();
-      if(name) plan[di].ex[ei].name = name;
-      saveState(400);
       return;
     }
     if(cust === 'sets'){
@@ -5344,8 +5447,24 @@ document.addEventListener('change', e => {
       else { plan[di].name = e.target.value.trim(); saveState(0); }
     }
     if(cust === 'exname' && plan[di] && plan[di].ex && plan[di].ex[ei]){
-      if(!e.target.value.trim()){ e.target.value = plan[di].ex[ei].name; }
-      else { plan[di].ex[ei].name = e.target.value.trim(); saveState(0); }
+      const exercise=plan[di].ex[ei],name=e.target.value.trim();
+      if(!name){e.target.value=exercise.name;}
+      else{
+        const result=renameExerciseEverywhere(exercise.id,name);
+        if(result.ok){
+          if(result.unchanged) e.target.value=exercise.name;
+          else{
+            document.querySelectorAll('#custom-routine-editor [data-cust="exname"]').forEach(input=>{
+              const inputDay=Number(input.getAttribute('data-di'));
+              const inputExercise=Number(input.getAttribute('data-ei'));
+              const current=plan[inputDay]&&plan[inputDay].ex&&plan[inputDay].ex[inputExercise];
+              if(current) input.value=current.name;
+            });
+            invalidateDerived();
+            saveState(0);
+          }
+        }else e.target.value=exercise.name;
+      }
     }
     if(cust === 'sets' && plan[di] && plan[di].ex && plan[di].ex[ei]){
       const n = parseInt(e.target.value, 10);
@@ -5507,22 +5626,54 @@ document.addEventListener('change', e => {
 });
 
 let errorDialogOpen=false;
-function showCrashDialog(message, detail=''){
+let lastCrashAction='No recent button action recorded';
+document.addEventListener('click',event=>{
+  const target=event.target;
+  const action=target&&target.closest?target.closest('[data-act]'):null;
+  if(action) lastCrashAction=String(action.getAttribute('data-act')||'Unknown action');
+},true);
+function likelyCrashCause(message, detail=''){
+  const text=String(message||'')+'\n'+String(detail||'');
+  if(/QuotaExceededError|quota.?exceeded|storage.?full/i.test(text))
+    return 'Browser storage may be full or unavailable. The app may have failed while saving data.';
+  if(/Cannot read propert(?:y|ies) of (?:null|undefined)|undefined is not an object|null is not an object/i.test(text))
+    return 'Code tried to read a property from a missing value. This can happen when expected app data or a page element is absent.';
+  if(/(?:is not a function|not callable)/i.test(text))
+    return 'Code tried to call a value that is not a function. A stale UI element or unexpected data shape may be involved.';
+  if(/ReferenceError:.*is not defined|\b[A-Za-z_$][\w$]* is not defined/i.test(text))
+    return 'Code referenced a variable or function that is not defined. Check for a typo or code running before initialization.';
+  if(/Maximum call stack size exceeded|too much recursion/i.test(text))
+    return 'A function may be calling itself repeatedly without reaching a stopping condition.';
+  if(/SyntaxError.*JSON|Unexpected token.*JSON|JSON\.parse/i.test(text))
+    return 'JSON parsing failed. Imported data or saved browser data may be malformed.';
+  if(/Failed to fetch|NetworkError|Load failed/i.test(text))
+    return 'A network request may have failed or been blocked.';
+  if(/TypeError/i.test(text))
+    return 'A value had an unexpected type or shape. The stack trace below may identify where it happened.';
+  return 'The exact cause could not be inferred automatically. Use the error message and first app-code stack frame below to investigate.';
+}
+function showCrashDialog(message, detail='', location=''){
   if(errorDialogOpen) return;
   const box=document.getElementById('error-box');
   if(!box) return;
   errorDialogOpen=true;
-  box.innerHTML=`<div class="error-overlay"><div class="error-card"><h2>⚠️ Something went wrong</h2><p>Lift Log hit an unexpected error. Your saved workouts have not been deliberately changed. Try returning to Home or reloading the app.</p><div><b>${esc(String(message||'Unexpected error'))}</b></div><div class="error-detail">${esc(String(detail||''))}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn acc" id="error-home">Go to Home</button><button class="btn" id="error-reload">Reload app</button><button class="btn" id="error-dismiss">Dismiss</button></div></div></div>`;
+  const reason=String(message||'Unexpected error');
+  const details=String(detail||'');
+  const appContext='Screen: '+String(ui&&ui.tab||'unknown')+' · Last button action: '+lastCrashAction;
+  box.innerHTML=`<div class="error-overlay"><div class="error-card"><h2>⚠️ Something went wrong</h2><p>An unexpected error occurred. Changes since the last successful save may not be saved.</p><div><b>Error:</b> ${esc(reason)}</div>${location?`<div class="error-context"><b>Location:</b> ${esc(location)}</div>`:''}<div class="error-suspect"><b>Likely cause (best-effort guess):</b><br>${esc(likelyCrashCause(reason,details))}</div><div class="error-context">${esc(appContext)}</div>${details?`<details><summary>Technical details (stack trace)</summary><div class="error-detail">${esc(details)}</div></details>`:''}<div style="font-size:11px;color:var(--mute);margin:8px 0">The suspected cause is an automated hint, not a confirmed diagnosis. No crash details are sent anywhere.</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn acc" id="error-home">Go to Home</button><button class="btn" id="error-reload">Reload app</button><button class="btn" id="error-dismiss">Dismiss</button></div></div></div>`;
   document.getElementById('error-home').onclick=()=>{errorDialogOpen=false;box.innerHTML='';try{ui.tab='home';render()}catch(e){showCrashDialog('Could not return Home',e&&e.stack||e)}};
   document.getElementById('error-reload').onclick=()=>location.reload();
   document.getElementById('error-dismiss').onclick=()=>{errorDialogOpen=false;box.innerHTML=''};
 }
 window.addEventListener('error', e=>{
-  showCrashDialog(e.message||'Script error',e.filename?`${e.filename}:${e.lineno||0}:${e.colno||0}`:'');
+  const error=e.error;
+  const location=e.filename?`${e.filename}:${e.lineno||0}:${e.colno||0}`:'Location unavailable (possibly a cross-origin script error).';
+  showCrashDialog(e.message||'Script error',error&&error.stack||'',location);
 });
 window.addEventListener('unhandledrejection', e=>{
   const reason=e.reason;
-  showCrashDialog('An operation failed',reason&&(reason.stack||reason.message)||String(reason||''));
+  const message=reason&&reason.message?reason.message:String(reason||'An operation failed');
+  showCrashDialog(message,reason&&reason.stack||'Unhandled promise rejection', '');
 });
 
 const pullRefresh={startY:null,active:false,ready:false,loading:false,timer:null};
@@ -5639,4 +5790,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.12.6 -->
+</html><!-- END OF FILE — Lift Log version 1.12.10 -->
