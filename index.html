@@ -2960,7 +2960,6 @@ function renderLogExercisesForDate(dStr){
       </h3>
       <div class="exercise-card-body"${initiallyCollapsed?' inert':''}><div class="exercise-card-body-inner">
       <div class="meta">${e.sets} sets × ${esc(e.range)} reps</div>
-      ${sharedPplExercise?'<div class="meta">Editing this PPL day makes its full exercise list the shared template from this date forward. Earlier templates and logged values are kept.</div>':''}
       ${lr?`<div class="meta">Previous session suggestions · ${esc(lb)} · placeholders only</div>`:''}`;
     if(tip&&!hideTip){
       const headline=tip.kind==='increase'?'Consider increasing weight next session.':tip.kind==='reduce'?'Consider reducing the load slightly.':tip.kind==='sets'?'You have consistently completed extra sets.':'Your recent progress may have leveled off.';
