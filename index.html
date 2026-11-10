@@ -1,6 +1,9 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.12.10
+  Current version: 1.12.11
+  Version 1.12.11 change log:
+  - Suggest the latest prior matching exercise values in future workout inputs without copying or changing saved logs.
+
   Version 1.12.10 change log:
   - Keep Push-Pull-Legs unchanged when adding a one-day exercise from the workout log.
   - Preserve shared-name history when renaming Custom Split exercises.
@@ -183,8 +186,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Lift Log">
 <meta name="theme-color" content="#141413">
-<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.12.10">
-<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.12.10">
+<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.12.11">
+<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.12.11">
 <title>Lift Log - Workout & Progress Tracker</title>
 <style>
 :root{
@@ -1586,6 +1589,18 @@ function lastBeforeRec(id,date){
   rel.forEach(r=>{const x=S.logs[d][r]; if(x&&filled(x)&&(!best||topW(x)>topW(best))) best=x;});
   return {date:d,rec:best};
 }
+function suggestedSetPlaceholder(exId, previousRec, setIndex, field){
+  const previousSet=previousRec&&Array.isArray(previousRec.sets)?previousRec.sets[setIndex]:null;
+  if(field==='w'){
+    const weight=previousSet&&num(previousSet.w);
+    return weight!==null&&weight>=0?formatExerciseWeight(exId,weight)+' '+unitForExercise(exId):unitForExercise(exId);
+  }
+  if(field==='r'){
+    const reps=previousSet&&num(previousSet.r);
+    return reps!==null&&reps>=0?String(reps):'reps';
+  }
+  return '';
+}
 function lastBefore(id,date){
   if(!isValidISODate(date)) return null;
   const ds=Object.keys(S.logs).filter(d=>d<date&&S.logs[d]&&S.logs[d][id]&&filled(S.logs[d][id])).sort();
@@ -2812,7 +2827,8 @@ function renderLogExercisesForDate(dStr){
         </span>
       </h3>
       <div class="exercise-card-body"${initiallyCollapsed?' inert':''}><div class="exercise-card-body-inner">
-      <div class="meta">${e.sets} sets × ${esc(e.range)} reps</div>`;
+      <div class="meta">${e.sets} sets × ${esc(e.range)} reps</div>
+      ${lr?`<div class="meta">Previous session suggestions · ${esc(lb)} · placeholders only</div>`:''}`;
     if(tip&&!hideTip){
       const headline=tip.kind==='increase'?'Consider increasing weight next session.':tip.kind==='reduce'?'Consider reducing the load slightly.':tip.kind==='sets'?'You have consistently completed extra sets.':'Your recent progress may have leveled off.';
       h+=`<div class="coach-advice"><b>Next session:</b> ${headline}<details class="coach-details"><summary>Why this suggestion?</summary><div class="coach-details-body">${tip.text?esc(tip.text):''}${tip.plateau?'<div style="margin-top:6px"><b>Plateau:</b> '+esc(tip.plateau)+'</div>':''}<div class="coach-actions"><button type="button" data-act="dismiss-coach" data-id="${esc(e.id)}" data-v="${esc(dStr)}">Dismiss</button><button type="button" data-act="not-useful-coach" data-id="${esc(e.id)}" data-v="${esc(tip.kind)}">Not useful</button></div></div></details></div>`;
@@ -2825,8 +2841,8 @@ function renderLogExercisesForDate(dStr){
       const isDone = (s.w!=='' && s.r!=='') ? ' set-done' : '';
       h+=`<div class="row${isDone}" data-set-row="${i}">
         <span>Set ${setNumber}</span>
-        <input type="number" inputmode="decimal" enterkeyhint="next" min="0" step="any" data-id="${esc(e.id)}" data-i="${i}" data-f="w" placeholder="${unitForExercise(e.id)}" value="${esc(displayWeight)}">
-        <input type="number" inputmode="numeric" enterkeyhint="next" min="0" step="1" data-id="${esc(e.id)}" data-i="${i}" data-f="r" placeholder="reps" value="${esc(s.r)}">
+        <input type="number" inputmode="decimal" enterkeyhint="next" min="0" step="any" data-id="${esc(e.id)}" data-i="${i}" data-f="w" placeholder="${esc(suggestedSetPlaceholder(e.id,lr,i,'w'))}" value="${esc(displayWeight)}">
+        <input type="number" inputmode="numeric" enterkeyhint="next" min="0" step="1" data-id="${esc(e.id)}" data-i="${i}" data-f="r" placeholder="${esc(suggestedSetPlaceholder(e.id,lr,i,'r'))}" value="${esc(s.r)}">
       </div>`;
     }
     const canRemoveSet = n > 1;
@@ -3343,7 +3359,7 @@ function vSet(){
   </div>`;
 
   h+='<div class="card"><h3>App updates</h3><div class="meta" style="margin:6px 0 10px">See what changed in each version.</div><button type="button" class="btn small acc" data-act="whatsnew">What’s New</button></div>';
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.12.10</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.12.11</div></div>`;
 
   return h;
 }
@@ -5790,4 +5806,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.12.10 -->
+</html><!-- END OF FILE — Lift Log version 1.12.11 -->
