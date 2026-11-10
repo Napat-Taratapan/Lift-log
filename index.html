@@ -1,6 +1,9 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.12.11
+  Current version: 1.13.0
+  Version 1.13.0 change log:
+  - Sync PPL exercise templates and planned set-count edits across matching days while preserving date-specific logs and historical templates.
+
   Version 1.12.11 change log:
   - Suggest the latest prior matching exercise values in future workout inputs without copying or changing saved logs.
 
@@ -186,8 +189,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Lift Log">
 <meta name="theme-color" content="#141413">
-<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.12.11">
-<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.12.11">
+<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.13.0">
+<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.13.0">
 <title>Lift Log - Workout & Progress Tracker</title>
 <style>
 :root{
@@ -1334,6 +1337,104 @@ const fmt=d=>{
 };
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const getPlan=()=>S.routines[S.activeRoutine]||S.routines.ppl;
+function pplDayType(name){
+  const label=String(name||'').trim().toLowerCase();
+  const match=label.match(/(?:^|[\s\-–—])(push|pull|legs?)(?:$|[\s\-–—])/);
+  if(!match) return null;
+  return match[1]==='legs'||match[1]==='leg'?'legs':match[1];
+}
+function cloneExerciseTemplate(exercises){
+  return (Array.isArray(exercises)?exercises:[]).filter(ex=>ex&&typeof ex.id==='string'&&typeof ex.name==='string').map(ex=>({
+    ...ex,
+    id:ex.id,
+    name:ex.name,
+    sets:Math.max(1,Math.min(50,Math.round(Number(ex.sets)||3))),
+    range:ex.range==null?'8-12':String(ex.range)
+  }));
+}
+function pplTemplateForDate(day,dateStr){
+  if(!day||!Array.isArray(day.ex)) return [];
+  if(!isValidISODate(dateStr)||!Array.isArray(day.pplTemplateHistory)) return cloneExerciseTemplate(day.ex);
+  const snapshots=day.pplTemplateHistory.filter(item=>item&&isValidISODate(item.from)&&Array.isArray(item.ex)&&item.from<=dateStr).sort((a,b)=>a.from.localeCompare(b.from));
+  return snapshots.length?cloneExerciseTemplate(snapshots[snapshots.length-1].ex):cloneExerciseTemplate(day.ex);
+}
+function getPlanForDate(dateStr){
+  const plan=getPlan();
+  if(S.activeRoutine!=='ppl'||!isValidISODate(dateStr)) return plan;
+  return plan.map(day=>({...day,ex:pplTemplateForDate(day,dateStr)}));
+}
+function newPplExerciseId(reservedIds){
+  const used=new Set();
+  Object.values(S.routines||{}).forEach(plan=>(plan||[]).forEach(day=>{
+    (day.ex||[]).forEach(ex=>used.add(ex.id));
+    (Array.isArray(day.pplTemplateHistory)?day.pplTemplateHistory:[]).forEach(snapshot=>{
+      if(Array.isArray(snapshot&&snapshot.ex)) snapshot.ex.forEach(ex=>{if(ex&&typeof ex.id==='string') used.add(ex.id);});
+    });
+  }));
+  Object.keys(S.archivedExercises||{}).forEach(id=>used.add(id));
+  if(reservedIds instanceof Set) reservedIds.forEach(id=>used.add(id));
+  let id='';
+  do{id='ppl_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8);}while(used.has(id));
+  if(reservedIds instanceof Set) reservedIds.add(id);
+  return id;
+}
+function syncPplTemplateFromDay(sourceDay,template,effectiveFrom,matchNamesById={}){
+  if(S.activeRoutine!=='ppl'||!sourceDay||!Array.isArray(template)||!isValidISODate(effectiveFrom)) return false;
+  const type=pplDayType(sourceDay.name);
+  if(!type) return false;
+  const peers=getPlan().filter(day=>pplDayType(day.name)===type);
+  if(peers.length<2) return false;
+  const desired=cloneExerciseTemplate(template);
+  const reservedIds=new Set(desired.map(ex=>ex.id));
+  peers.forEach(day=>{
+    if(!Array.isArray(day.ex)) day.ex=[];
+    if(!Array.isArray(day.pplTemplateHistory)) day.pplTemplateHistory=[{from:'0001-01-01',ex:cloneExerciseTemplate(day.ex)}];
+    const history=day.pplTemplateHistory.filter(item=>item&&isValidISODate(item.from)&&Array.isArray(item.ex));
+    if(!history.some(item=>item.from==='0001-01-01')) history.push({from:'0001-01-01',ex:cloneExerciseTemplate(day.ex)});
+    const prior=pplTemplateForDate({...day,pplTemplateHistory:history},effectiveFrom);
+    const usedIds=new Set();
+    const synced=desired.map(ex=>{
+      let existing=null;
+      if(day===sourceDay) existing=prior.find(item=>item.id===ex.id)||null;
+      if(!existing){
+        const alias=matchNamesById[ex.id];
+        const names=new Set([String(ex.name||'').trim().toLowerCase(),alias&&String(alias).trim().toLowerCase()].filter(Boolean));
+        existing=prior.find(item=>!usedIds.has(item.id)&&names.has(String(item.name||'').trim().toLowerCase()))||null;
+      }
+      let id=day===sourceDay&&ex.id&&!usedIds.has(ex.id)?ex.id:existing&&!usedIds.has(existing.id)?existing.id:newPplExerciseId(reservedIds);
+      usedIds.add(id);
+      return {id,name:ex.name,sets:ex.sets,range:ex.range};
+    });
+    const retained=new Set(synced.map(ex=>ex.id));
+    const allKnown=[...day.ex,...history.flatMap(item=>cloneExerciseTemplate(item.ex)),...prior];
+    const archivedSeen=new Set();
+    allKnown.forEach(ex=>{
+      if(ex&&ex.id&&!retained.has(ex.id)&&!archivedSeen.has(ex.id)){
+        archivedSeen.add(ex.id);
+        archiveExerciseIfHasHistory(ex);
+      }
+    });
+    const nextHistory=history.filter(item=>item.from<effectiveFrom);
+    nextHistory.push({from:effectiveFrom,ex:cloneExerciseTemplate(synced)});
+    nextHistory.sort((a,b)=>a.from.localeCompare(b.from));
+    day.pplTemplateHistory=nextHistory;
+    day.ex=pplTemplateForDate(day,iso(now));
+  });
+  invalidateDerived();
+  return true;
+}
+function syncPplPlannedSets(sourceDay,exerciseId,setCount,effectiveFrom){
+  if(!Number.isInteger(setCount)||setCount<1||setCount>50) return false;
+  const template=pplTemplateForDate(sourceDay,effectiveFrom);
+  const exercise=template.find(item=>item.id===exerciseId);
+  if(!exercise) return false;
+  exercise.sets=setCount;
+  return syncPplTemplateFromDay(sourceDay,template,effectiveFrom);
+}
+function isPplTemplateExercise(day,exerciseId,dateStr){
+  return S.activeRoutine==='ppl'&&!!day&&pplDayType(day.name)!==null&&
+    pplTemplateForDate(day,dateStr).some(item=>item.id===exerciseId);
+}
 const WD=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
 const TAB_ORDER=['home','today','cal','prog','weight','set'];
@@ -1381,7 +1482,12 @@ const normName=n=>String(n??'').trim().toLowerCase();
 function relatedIds(id){
   const names={}, byName={};
   const add=(i,n)=>{const k=normName(n); if(!k||(i in names)) return; names[i]=k; (byName[k]=byName[k]||[]).push(i);};
-  Object.values(S.routines||{}).forEach(plan=>(plan||[]).forEach(d=>(d.ex||[]).forEach(e=>add(e.id,e.name))));
+  Object.values(S.routines||{}).forEach(plan=>(plan||[]).forEach(d=>{
+    (d.ex||[]).forEach(e=>add(e.id,e.name));
+    (Array.isArray(d.pplTemplateHistory)?d.pplTemplateHistory:[]).forEach(snapshot=>{
+      if(Array.isArray(snapshot&&snapshot.ex)) snapshot.ex.forEach(e=>{if(e&&typeof e.id==='string') add(e.id,e.name);});
+    });
+  }));
   Object.entries(S.archivedExercises||{}).forEach(([i,e])=>add(i,e&&e.name));
   const k=names[id];
   return k?byName[k]:[id];
@@ -1409,7 +1515,7 @@ function visibleSetCount(ex, rec, dateStr){
 }
 
 function resolveLogExercise(id){
-  const plan = getPlan();
+  const plan = getPlanForDate(ui.date);
   const day = plan[ui.day];
   let ex = day && day.ex && day.ex.find(item => item.id === id);
   if(!ex){
@@ -1624,6 +1730,17 @@ function exList(){
   const o=[];
   getPlan().forEach(d=>d.ex.forEach(e=>o.push({...e,day:d.name})));
   const activeIds=new Set(o.map(e=>e.id));
+  Object.values(S.routines||{}).forEach(plan=>(plan||[]).forEach(day=>{
+    (Array.isArray(day.pplTemplateHistory)?day.pplTemplateHistory:[]).forEach(snapshot=>{
+      (Array.isArray(snapshot&&snapshot.ex)?snapshot.ex:[]).forEach(ex=>{
+        if(ex&&typeof ex.id==='string'&&!activeIds.has(ex.id)&&!o.some(item=>item.id===ex.id)&&
+          Object.values(S.logs||{}).some(log=>log&&log[ex.id]&&hasExerciseHistory(log[ex.id]))){
+          o.push({...ex,day:'Archived exercise'});
+        }
+      });
+    });
+  }));
+  o.forEach(ex=>activeIds.add(ex.id));
   Object.entries(S.archivedExercises||{}).forEach(([id,e])=>{
     if(!activeIds.has(id) && Object.values(S.logs||{}).some(day=>day&&day[id]&&hasExerciseHistory(day[id])))
       o.push({...e,id,day:'Archived exercise'});
@@ -1636,6 +1753,14 @@ function exerciseNameById(id){
     for(const day of plan||[]){
       const ex=(day.ex||[]).find(item=>item.id===id);
       if(ex&&ex.name) return ex.name;
+    }
+  }
+  for(const plan of Object.values(S.routines||{})){
+    for(const day of plan||[]){
+      for(const snapshot of Array.isArray(day.pplTemplateHistory)?day.pplTemplateHistory:[]){
+        const ex=(Array.isArray(snapshot&&snapshot.ex)?snapshot.ex:[]).find(item=>item&&item.id===id);
+        if(ex&&ex.name) return ex.name;
+      }
     }
   }
   return S.archivedExercises&&S.archivedExercises[id]&&S.archivedExercises[id].name || id;
@@ -1681,7 +1806,7 @@ function calcStreak(){
     if(dayHasWork(ds)){ streak++; }
     else {
       const idx=dayIdx(ds);
-      if(idx<0 || getPlan()[idx].ex.length===0){ }
+      if(idx<0 || getPlanForDate(ds)[idx].ex.length===0){ }
       else if(i>0){ break; }
     }
     d.setDate(d.getDate()-1);
@@ -2314,7 +2439,7 @@ function isRoutineRestDay(ds){
   if(!isValidISODate(ds)) return false;
   const idx=dayIdx(ds);
   if(idx<0) return true;
-  const day=getPlan()[idx];
+  const day=getPlanForDate(ds)[idx];
   return !day || !Array.isArray(day.ex) || day.ex.length===0;
 }
 function hasTrainingContext(ds){
@@ -2347,7 +2472,12 @@ function splitDayName(n){ const p=String(n).split(' - '); return p.length>1?{day
 function exerciseSessions(){
   if(_derived.sessions) return _derived.sessions;
   const names={};
-  Object.values(S.routines||{}).forEach(pl=>(pl||[]).forEach(d=>(d.ex||[]).forEach(e=>{ names[e.id]=e.name; })));
+  Object.values(S.routines||{}).forEach(pl=>(pl||[]).forEach(d=>{
+    (d.ex||[]).forEach(e=>{ names[e.id]=e.name; });
+    (Array.isArray(d.pplTemplateHistory)?d.pplTemplateHistory:[]).forEach(snapshot=>{
+      (Array.isArray(snapshot&&snapshot.ex)?snapshot.ex:[]).forEach(e=>{if(e&&typeof e.id==='string'&&!(e.id in names)) names[e.id]=e.name;});
+    });
+  }));
   Object.entries(S.archivedExercises||{}).forEach(([i,e])=>{ if(!(i in names)) names[i]=e&&e.name; });
   const out={};
   Object.keys(S.logs||{}).filter(isValidISODate).sort().forEach(date=>{
@@ -2405,7 +2535,7 @@ function markFullBackupDate(){
 }
 
 function vHome(){
-  const today=iso(new Date()), plan=getPlan(), idx=dayIdx(today), d=idx>=0?plan[idx]:null;
+  const today=iso(new Date()), plan=getPlanForDate(today), idx=dayIdx(today), d=idx>=0?plan[idx]:null;
   const streak=calcStreak(), mon=mondayOf(today);
   let i=0; const step=()=>` style="--i:${i++}"`;
 
@@ -2443,7 +2573,7 @@ function vHome(){
     </div>`;
   } else {
     let next=null;
-    for(let k=1;k<=7&&!next;k++){ const ds=addDays(today,k), ix=dayIdx(ds); if(ix>=0&&plan[ix].ex.length) next={ds,nm:splitDayName(plan[ix].name)}; }
+    for(let k=1;k<=7&&!next;k++){ const ds=addDays(today,k), ix=dayIdx(ds), nextPlan=getPlanForDate(ds); if(ix>=0&&nextPlan[ix].ex.length) next={ds,nm:splitDayName(nextPlan[ix].name)}; }
     card=`<div class="card today-card"${step()}>
       <div class="tc-row"><div class="tc-main"><div class="tc-lab">TODAY</div>
         <div class="tc-name">Rest day</div>
@@ -2457,7 +2587,7 @@ function vHome(){
   let wk='', doneW=0, planW=0, elapsed=0;
   const firstLog=Object.keys(S.logs).filter(dayHasWork).sort()[0];
   for(let k=0;k<7;k++){
-    const ds=addDays(mon,k), ix=dayIdx(ds), planned=ix>=0&&plan[ix].ex.length>0, did=dayHasWork(ds);
+    const ds=addDays(mon,k), ix=dayIdx(ds), dayPlan=getPlanForDate(ds), planned=ix>=0&&dayPlan[ix].ex.length>0, did=dayHasWork(ds);
     if(planned) planW++;
     if(did) doneW++;
     if(ds<=today) elapsed=k+1;
@@ -2628,7 +2758,7 @@ document.addEventListener('keydown',e=>{
   if(card) setExerciseCollapsed(card,!card.classList.contains('is-collapsed'));
 });
 function workoutSetProgress(dateStr, activeDayIdx){
-  const day=getPlan()[activeDayIdx];
+  const day=getPlanForDate(dateStr)[activeDayIdx];
   if(!day||!Array.isArray(day.ex)) return {done:0,total:0};
   const log=S.logs[dateStr]||{};
   const targets=day.ex.map(ex=>visibleSetCount(ex,log[ex.id],dateStr));
@@ -2768,7 +2898,7 @@ function openWhatsNew(){
 }
 
 function renderLogExercisesForDate(dStr){
-  const plan = getPlan();
+  const plan = getPlanForDate(dStr);
   const dIdx = dayFor(dStr);
   let d = plan[dIdx];
   if (!d) d = { name: 'Rest Day', ex: [] };
@@ -2785,6 +2915,7 @@ function renderLogExercisesForDate(dStr){
   });
   
   const exercisesToRender = [...d.ex, ...extraEx];
+  const sharedPplDay=S.activeRoutine==='ppl'&&pplDayType(d.name)!==null;
   
   if(!exercisesToRender.length) return `<div class="empty"><svg class="svg-icon" style="width:48px;height:48px;color:var(--mute);margin-bottom:12px" viewBox="0 0 24 24"><path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><line x1="6" y1="2" x2="6" y2="4"/><line x1="10" y1="2" x2="10" y2="4"/><line x1="14" y1="2" x2="14" y2="4"/></svg><div>Rest day scheduled! Take time to recover.</div></div>`;
   
@@ -2798,6 +2929,7 @@ function renderLogExercisesForDate(dStr){
 
   exercisesToRender.forEach((e, idx)=>{
     const isExtra = idx >= d.ex.length;
+    const sharedPplExercise=sharedPplDay&&!isExtra;
     const rec=(S.logs[dStr]||{})[e.id]||{sets:[],note:''};
     const lbr=lastBeforeRec(e.id,dStr),lb=lbr?lbr.date:null,lr=lbr?lbr.rec:null;
     const n=visibleSetCount(e, rec, dStr);
@@ -2828,6 +2960,7 @@ function renderLogExercisesForDate(dStr){
       </h3>
       <div class="exercise-card-body"${initiallyCollapsed?' inert':''}><div class="exercise-card-body-inner">
       <div class="meta">${e.sets} sets × ${esc(e.range)} reps</div>
+      ${sharedPplExercise?'<div class="meta">Editing this PPL day makes its full exercise list the shared template from this date forward. Earlier templates and logged values are kept.</div>':''}
       ${lr?`<div class="meta">Previous session suggestions · ${esc(lb)} · placeholders only</div>`:''}`;
     if(tip&&!hideTip){
       const headline=tip.kind==='increase'?'Consider increasing weight next session.':tip.kind==='reduce'?'Consider reducing the load slightly.':tip.kind==='sets'?'You have consistently completed extra sets.':'Your recent progress may have leveled off.';
@@ -2847,8 +2980,8 @@ function renderLogExercisesForDate(dStr){
     }
     const canRemoveSet = n > 1;
     h+=`<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center">
-      <button class="btn small icon-btn" data-act="removeset" data-id="${esc(e.id)}" ${canRemoveSet?'':'disabled aria-disabled="true" style="opacity:.4"'} title="Remove last set" aria-label="Remove last set">${iconMinus}</button>
-      <button class="btn small icon-btn" data-act="addset" data-id="${esc(e.id)}" title="Add a set" aria-label="Add a set">${iconPlus}</button>
+      <button class="btn small icon-btn" data-act="removeset" data-id="${esc(e.id)}" ${canRemoveSet?'':'disabled aria-disabled="true" style="opacity:.4"'} title="${sharedPplExercise?'Remove a planned set from matching PPL days':'Remove last set'}" aria-label="Remove last set">${iconMinus}</button>
+      <button class="btn small icon-btn" data-act="addset" data-id="${esc(e.id)}" title="${sharedPplExercise?'Add a planned set to matching PPL days':'Add a set'}" aria-label="Add a set">${iconPlus}</button>
       <button class="btn small acc icon-btn" data-act="starttimer" title="Rest timer" aria-label="Start rest timer">${timerIcon}</button>
     </div>
     ${restSeconds?`<div class="rest-suggestion"><span>Suggested rest: ${restSeconds/60} min</span><button class="btn small" data-act="starttimer-suggested" data-v="${restSeconds}">Start</button></div>`:''}
@@ -3359,7 +3492,7 @@ function vSet(){
   </div>`;
 
   h+='<div class="card"><h3>App updates</h3><div class="meta" style="margin:6px 0 10px">See what changed in each version.</div><button type="button" class="btn small acc" data-act="whatsnew">What’s New</button></div>';
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.12.11</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.13.0</div></div>`;
 
   return h;
 }
@@ -4062,8 +4195,9 @@ function finishExerciseDrag(e) {
     const ids = exerciseCards()
       .filter(c => !c.classList.contains('drag-placeholder'))
       .map(c => c.dataset.exCard);
-    const plan = getPlan();
+    const plan = getPlanForDate(ui.date);
     const day = plan[ui.day];
+    const sourceDay = getPlan()[ui.day];
     if(!day || !Array.isArray(day.ex)) return;
 
     const byId = new Map(day.ex.map(ex => [ex.id, ex]));
@@ -4071,8 +4205,15 @@ function finishExerciseDrag(e) {
     let changed=false;
     if (planIdsInOrder.length === day.ex.length && new Set(planIdsInOrder).size === planIdsInOrder.length) {
       const reorderedPlan=planIdsInOrder.map(id => byId.get(id));
-      changed=reorderedPlan.some((exercise,index)=>exercise.id!==day.ex[index].id)||changed;
-      day.ex=reorderedPlan;
+      const reordered=reorderedPlan.some((exercise,index)=>exercise.id!==day.ex[index].id);
+      if(reordered){
+        if(S.activeRoutine==='ppl'){
+          changed=syncPplTemplateFromDay(sourceDay,reorderedPlan,ui.date)||changed;
+        }else{
+          sourceDay.ex=reorderedPlan;
+          changed=true;
+        }
+      }
     }
     const offPlanIds=ids.filter(id=>!byId.has(id));
     const log=S.logs[ui.date]||{};
@@ -4381,16 +4522,26 @@ function commitRenameFromInput(input){
     finishUi(previous);
     return;
   }
-  const plan = getPlan();
+  const plan = getPlanForDate(ui.date);
   const day = plan[ui.day];
   if(day && day.ex && day.ex.some(item => item.id !== id && normName(item.name) === normName(clean))){
     showAppAlert('That name is already used by another exercise on this workout day.',()=>input.focus());
     return;
   }
-  const result = renameExerciseEverywhere(id, clean);
-  if(!result.ok){
-    showAppAlert('Could not rename the exercise.',()=>input.focus());
-    return;
+  if(S.activeRoutine==='ppl'){
+    const sourceDay=getPlan()[ui.day];
+    const template=pplTemplateForDate(sourceDay,ui.date);
+    const exercise=template.find(item=>item.id===id);
+    if(!exercise||!syncPplTemplateFromDay(sourceDay,template.map(item=>item.id===id?{...item,name:clean}:item),ui.date,{[id]:previous})){
+      showAppAlert('Could not sync the renamed PPL exercise.',()=>input.focus());
+      return;
+    }
+  }else{
+    const result = renameExerciseEverywhere(id, clean);
+    if(!result.ok){
+      showAppAlert('Could not rename the exercise.',()=>input.focus());
+      return;
+    }
   }
   invalidateDerived();
   saveState(0);
@@ -4500,7 +4651,8 @@ function showAppPrompt({title,message,fields,confirmLabel='Save',onSubmit}){
 }
 
 function performRemoveExercise(id){
-  const day = getPlan()[ui.day];
+  const sourceDay = getPlan()[ui.day];
+  const day = getPlanForDate(ui.date)[ui.day];
   const ex = day && day.ex.find(item => item.id === id);
   if(!ex){
     const rec = S.logs[ui.date] && S.logs[ui.date][id];
@@ -4523,12 +4675,22 @@ function performRemoveExercise(id){
   }
   showAppConfirm({
     title: 'Remove from routine?',
-    message: 'Remove "'+ex.name+'" from this routine? Past logs stay in Progress.',
+    message:S.activeRoutine==='ppl'
+      ? 'Use this day as the shared template for matching PPL days from this date forward, then remove "'+ex.name+'". Earlier templates and all logged values are kept.'
+      : 'Remove "'+ex.name+'" from this routine? Past logs stay in Progress.',
     confirmLabel: 'Remove',
     danger: true,
     onConfirm: ()=>{
-      archiveExerciseIfHasHistory(ex);
-      day.ex = day.ex.filter(item => item.id !== id);
+      if(S.activeRoutine==='ppl'){
+        const template=pplTemplateForDate(sourceDay,ui.date).filter(item=>item.id!==id);
+        if(!syncPplTemplateFromDay(sourceDay,template,ui.date)){
+          showAppAlert('Could not sync this PPL template. No routine changes were applied.');
+          return;
+        }
+      }else{
+        archiveExerciseIfHasHistory(ex);
+        day.ex = day.ex.filter(item => item.id !== id);
+      }
       delete ui.extra[id];
       if(ui.prog === id) ui.prog = null;
       pruneArchivedExercises();
@@ -5194,12 +5356,18 @@ document.addEventListener('click', e => {
     }
   }
   else if(a==='addexercise'){
-    const day=getPlan()[ui.day];
+    const sourceDay=getPlan()[ui.day];
+    const day=getPlanForDate(ui.date)[ui.day];
     const addToRoutine=S.activeRoutine==='custom';
+    const syncPpl=S.activeRoutine==='ppl'&&sourceDay&&pplDayType(sourceDay.name)!==null;
     if(!day){showAppAlert('This date is a rest day with no workout in your routine, so there is nowhere to add an exercise. Open a scheduled workout day and add it there.');return;}
     showAppPrompt({
       title:'Add exercise to workout',
-      message:addToRoutine?'This exercise will be added to the selected Custom Split day.':'This exercise will be added to this workout only. Your Push-Pull-Legs preset will not be changed.',
+      message:addToRoutine
+        ?'This exercise will be added to the selected Custom Split day.'
+        :syncPpl
+          ?'This day’s full exercise list will become the shared template for matching PPL days from this date forward. Earlier templates and logged values are kept.'
+          :'This exercise will be added to this workout only.',
       fields:[
         {label:'Exercise name',value:'',placeholder:'Exercise name'},
         {label:'Working sets',type:'number',value:3,min:1,max:20,step:1},
@@ -5211,10 +5379,20 @@ document.addEventListener('click', e => {
         const sets=Number(values[1]);
         const cleanRange=String(values[2]||'').trim()||'8-12';
         if(!clean){showAppAlert('Please enter an exercise name.');return;}
-        if(day.ex.some(ex=>ex.name.toLowerCase()===clean.toLowerCase())){showAppAlert('That exercise is already in this workout.');return;}
+        const template=syncPpl?pplTemplateForDate(sourceDay,ui.date):day.ex;
+        if(template.some(ex=>normName(ex.name)===normName(clean))){showAppAlert('That exercise is already in this workout.');return;}
         if(!Number.isInteger(sets)||sets<1||sets>20){showAppAlert('Enter a number of sets from 1 to 20.');return;}
         if(addToRoutine){
           day.ex.push(newCustomExercise(clean,sets,cleanRange));
+        }else if(syncPpl){
+          const nextTemplate=[...template,{id:newPplExerciseId(),name:clean,sets,range:cleanRange}];
+          if(!syncPplTemplateFromDay(sourceDay,nextTemplate,ui.date)){
+            showAppAlert('Could not sync this PPL template. No routine changes were applied.');
+            return;
+          }
+          const id=nextTemplate[nextTemplate.length-1].id;
+          if(!S.logs[ui.date]) S.logs[ui.date]={};
+          S.logs[ui.date][id]={sets:Array.from({length:sets},()=>({w:'',r:''})),note:''};
         }else{
           const id=newExerciseId();
           if(!S.archivedExercises) S.archivedExercises={};
@@ -5232,9 +5410,19 @@ document.addEventListener('click', e => {
   }
   else if(a==='addset'){
     const ex = resolveLogExercise(id);
+    const currentN = visibleSetCount(ex,(S.logs[ui.date]||{})[id],ui.date);
+    const sourceDay=getPlan()[ui.day];
+    const syncPlannedCount=isPplTemplateExercise(sourceDay,id,ui.date);
+    if(syncPlannedCount&&currentN>=50){
+      showAppAlert('A shared PPL exercise cannot have more than 50 planned sets.');
+      return;
+    }
+    if(syncPlannedCount&&!syncPplPlannedSets(sourceDay,id,currentN+1,ui.date)){
+      showAppAlert('Could not sync this PPL set-count change. No workout data was changed.');
+      return;
+    }
     if(!S.logs[ui.date]) S.logs[ui.date]={};
     const rec = S.logs[ui.date][id] || (S.logs[ui.date][id]={sets:[],note:''});
-    const currentN = visibleSetCount(ex, rec, ui.date);
     haptic(10);
     rec.setCountOverride=currentN+1;
     ui.extra[setCountKey(id, ui.date)] = rec.setCountOverride;
@@ -5249,7 +5437,13 @@ document.addEventListener('click', e => {
     if(currentN <= 1) return;
     haptic(10);
     const nextN = currentN - 1;
+    const sourceDay=getPlan()[ui.day];
+    const syncPlannedCount=isPplTemplateExercise(sourceDay,id,ui.date)&&nextN<=50;
     const remove=()=>{
+      if(syncPlannedCount&&!syncPplPlannedSets(sourceDay,id,nextN,ui.date)){
+        showAppAlert('Could not sync this PPL set-count change. No workout data was changed.');
+        return;
+      }
       if(!S.logs[ui.date]) S.logs[ui.date]={};
       const savedRec=S.logs[ui.date][id]||(S.logs[ui.date][id]={sets:[],note:''});
       savedRec.setCountOverride=nextN;
@@ -5263,7 +5457,13 @@ document.addEventListener('click', e => {
     };
     const trailing=rec.sets&&rec.sets[currentN-1];
     if(trailing && (trailing.w!==''&&trailing.w!=null || trailing.r!==''&&trailing.r!=null)){
-      showAppConfirm({title:'Remove completed set?',message:'This set has logged values. Removing it will delete those values from this workout.',confirmLabel:'Remove set',danger:true,onConfirm:remove});
+      showAppConfirm({
+        title:'Remove completed set?',
+        message:syncPlannedCount
+          ? 'This removes the logged values from this date and updates the shared planned set count on matching PPL days from this date forward. Earlier templates and other dates’ logs stay unchanged.'
+          : 'This set has logged values. Removing it will delete those values from this workout.',
+        confirmLabel:'Remove set',danger:true,onConfirm:remove
+      });
     } else remove();
   }
   else if(a==='renameexercise'){
@@ -5806,4 +6006,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.12.11 -->
+</html><!-- END OF FILE — Lift Log version 1.13.0 -->
