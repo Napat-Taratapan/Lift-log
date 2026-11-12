@@ -1,6 +1,14 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.15.0
+  Current version: 1.16.0
+  Version 1.16.0 change log:
+  - Preserve distinct PPL workout templates when the same workout type is assigned to multiple weekdays.
+  - Keep Custom Split weekday assignments stable in past dates after schedule edits.
+
+  Version 1.15.1 change log:
+  - Fix loading saved PPL schedules before schedule validation rules initialize.
+  - Default PPL schedule edits to today and preserve a later saved assignment when moving its start earlier.
+
   Version 1.15.0 change log:
   - Move the Custom Split editor into a compact Settings popup.
 
@@ -195,8 +203,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Lift Log">
 <meta name="theme-color" content="#141413">
-<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.15.0">
-<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.15.0">
+<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.16.0">
+<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.16.0">
 <title>Lift Log - Workout & Progress Tracker</title>
 <style>
 :root{
@@ -920,8 +928,9 @@ function safeStorageRemove(key){
 function defaultState(){
   return {
     activeRoutine:'ppl',
-    routines:{ppl:buildPlan(PPL_ROUTINE),custom:buildPlan(CUSTOM_ROUTINE)},
+    routines:{ppl:buildPlan(PPL_ROUTINE),custom:buildCustomPlan()},
     pplScheduleHistory:[],
+    customScheduleHistory:[],
     logs:{},
     exerciseUnits:{},
     weightLogs:{},
@@ -937,6 +946,8 @@ const PPL_ROUTINE=[
   ["Saturday - Legs",[["Seated Leg Curl",4,"8-12"],["Leg Press",3,"10-15"],["Hack Squat Machine",3,"8-12"],["Hip Thrust Machine",3,"8-12"],["Leg Extension",2,"12-15"],["Lying Leg Curl",2,"10-15"],["Adductor Machine",2,"12-15"]]],
   ["Sunday - Push",[["Incline Chest Press Machine",4,"6-10"],["Incline Press Machine",3,"8-12"],["Pec Deck",3,"10-15"],["Low-to-High Cable Fly",2,"10-15"],["Machine Lateral Raise",3,"10-15"],["Cable Triceps Pushdown",3,"8-12"]]]
 ];
+const PPL_WEEKDAYS=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const PPL_SCHEDULE_TYPES=['Push','Pull','Legs','Rest'];
 
 const CUSTOM_ROUTINE=[
   ["Day 1 - Chest",[["Barbell Bench Press",4,"6-10"],["Incline Dumbbell Press",3,"8-12"],["Cable Flyes",3,"10-15"]]],
@@ -950,10 +961,31 @@ const CUSTOM_ROUTINE=[
 
 function buildPlan(arr){return arr.map((d,i)=>({name:d[0],ex:d[1].map((e,j)=>({id:'d'+i+'_'+j+'_'+Math.random().toString(36).substr(2,4),name:e[0],sets:e[1],range:e[2]}))}))}
 
+function newCustomDayId(){
+  return 'custom_day_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,9);
+}
+function ensureCustomDayIds(plan){
+  if(!Array.isArray(plan)) return;
+  const used=new Set();
+  plan.forEach(day=>{
+    if(!day||typeof day!=='object') return;
+    if(typeof day.scheduleId!=='string'||!day.scheduleId||used.has(day.scheduleId)){
+      do{day.scheduleId=newCustomDayId();}while(used.has(day.scheduleId));
+    }
+    used.add(day.scheduleId);
+  });
+}
+function buildCustomPlan(){
+  const plan=buildPlan(CUSTOM_ROUTINE);
+  ensureCustomDayIds(plan);
+  return plan;
+}
+
 /** Custom routine only — never mutates PPL. */
 function getCustomPlan(){
   if(!S.routines) S.routines = {};
-  if(!Array.isArray(S.routines.custom)) S.routines.custom = buildPlan(CUSTOM_ROUTINE);
+  if(!Array.isArray(S.routines.custom)) S.routines.custom = buildCustomPlan();
+  ensureCustomDayIds(S.routines.custom);
   return S.routines.custom;
 }
 function newExerciseId(){
@@ -983,6 +1015,47 @@ function clonePlanWithFreshIds(plan){
       range: e.range
     }))
   }));
+}
+function customDayIndexForWeekday(weekday,plan){
+  const weekdayName=WD[weekday].toLowerCase();
+  const namedIndex=plan.findIndex(day=>String(day.name||'').toLowerCase().includes(weekdayName));
+  if(namedIndex!==-1) return namedIndex;
+  const mondayFirstDays=[1,2,3,4,5,6,0];
+  const namedWeekdays=new Set();
+  const isNamedDay=day=>WD.some(name=>String(day.name||'').toLowerCase().includes(name.toLowerCase()));
+  plan.forEach(day=>{
+    WD.forEach((name,index)=>{
+      if(String(day.name||'').toLowerCase().includes(name.toLowerCase())) namedWeekdays.add(index);
+    });
+  });
+  const unnamedIndices=plan.map((day,index)=>isNamedDay(day)?-1:index).filter(index=>index>=0);
+  const remainingWeekdays=mondayFirstDays.filter(index=>!namedWeekdays.has(index));
+  const fallbackIndex=remainingWeekdays.indexOf(weekday);
+  return fallbackIndex>=0&&fallbackIndex<unnamedIndices.length?unnamedIndices[fallbackIndex]:-1;
+}
+function customScheduleSnapshot(plan=getCustomPlan()){
+  ensureCustomDayIds(plan);
+  return Array.from({length:7},(_,weekday)=>{
+    const index=customDayIndexForWeekday((weekday+1)%7,plan);
+    const day=index>=0?plan[index]:null;
+    return day?{id:day.scheduleId,name:String(day.name||'')}:null;
+  });
+}
+function customScheduleForDate(dateStr){
+  const history=Array.isArray(S.customScheduleHistory)?S.customScheduleHistory:[];
+  const revisions=history.filter(item=>item&&isValidISODate(item.from)&&item.from<=dateStr&&Array.isArray(item.days))
+    .sort((a,b)=>a.from.localeCompare(b.from));
+  return revisions.length?revisions[revisions.length-1].days.map(day=>day?{id:day.id,name:day.name}:null):customScheduleSnapshot();
+}
+function recordCustomScheduleChange(previousSchedule){
+  const today=iso(new Date());
+  const history=Array.isArray(S.customScheduleHistory)?S.customScheduleHistory.slice():[];
+  if(!history.some(item=>item&&isValidISODate(item.from)&&item.from<today)){
+    history.push({from:'0001-01-01',days:previousSchedule.map(day=>day?{id:day.id,name:day.name}:null)});
+  }
+  S.customScheduleHistory=history.filter(item=>item&&isValidISODate(item.from)&&item.from<today);
+  S.customScheduleHistory.push({from:today,days:customScheduleSnapshot()});
+  S.customScheduleHistory.sort((a,b)=>a.from.localeCompare(b.from));
 }
 function renderCustomRoutineEditor(){
   const plan = getCustomPlan();
@@ -1102,6 +1175,7 @@ function sanitizeImportedState(o){
       });
     });
   });
+  if(Array.isArray(o.routines.custom)) ensureCustomDayIds(o.routines.custom);
   const logs={};
   Object.keys(o.logs).forEach(date=>{
     if(!isValidISODate(date)) bad('Log date "'+date+'" is invalid.');
@@ -1158,7 +1232,24 @@ function sanitizeImportedState(o){
     pplScheduleHistory.push({from:item.from,days:item.days.slice()});
   });
   pplScheduleHistory.sort((a,b)=>a.from.localeCompare(b.from));
-  return {activeRoutine:active,routines:o.routines,pplScheduleHistory,logs,archivedExercises:archived,exerciseUnits,weightLogs,weightUnit};
+  const customScheduleHistory=[];
+  if(o.customScheduleHistory!==undefined&&!Array.isArray(o.customScheduleHistory)) bad('"Custom Split schedule history" must be a list.');
+  const seenCustomScheduleDates=new Set();
+  (Array.isArray(o.customScheduleHistory)?o.customScheduleHistory:[]).forEach((item,index)=>{
+    if(!isObj(item)||!isValidISODate(item.from)||!Array.isArray(item.days)||item.days.length!==7)
+      bad('Custom Split schedule revision '+(index+1)+' must have a valid start date and seven weekday assignments.');
+    if(seenCustomScheduleDates.has(item.from)) bad('Custom Split schedule history contains more than one revision for '+item.from+'.');
+    seenCustomScheduleDates.add(item.from);
+    const days=item.days.map(day=>{
+      if(day===null) return null;
+      if(!isObj(day)||typeof day.id!=='string'||!day.id||typeof day.name!=='string')
+        bad('Custom Split schedule revision '+(index+1)+' contains an invalid weekday assignment.');
+      return {id:day.id,name:day.name};
+    });
+    customScheduleHistory.push({from:item.from,days});
+  });
+  customScheduleHistory.sort((a,b)=>a.from.localeCompare(b.from));
+  return {activeRoutine:active,routines:o.routines,pplScheduleHistory,customScheduleHistory,logs,archivedExercises:archived,exerciseUnits,weightLogs,weightUnit};
 }
 
 function loadState(){
@@ -1405,8 +1496,6 @@ function pplDayType(name){
   if(!match) return null;
   return match[1]==='legs'||match[1]==='leg'?'legs':match[1];
 }
-const PPL_WEEKDAYS=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-const PPL_SCHEDULE_TYPES=['Push','Pull','Legs','Rest'];
 function defaultPplSchedule(){
   return PPL_WEEKDAYS.map(weekday=>{
     const day=PPL_ROUTINE.find(item=>item[0].toLowerCase().includes(weekday.toLowerCase()));
@@ -1420,11 +1509,22 @@ function pplScheduleForDate(dateStr){
     .sort((a,b)=>a.from.localeCompare(b.from));
   return snapshots.length?snapshots[snapshots.length-1].days.slice():defaultPplSchedule();
 }
+function pplScheduleForEditorDate(dateStr){
+  const history=Array.isArray(S.pplScheduleHistory)?S.pplScheduleHistory:[];
+  if(!history.some(item=>item&&isValidISODate(item.from)&&item.from<=dateStr&&Array.isArray(item.days))){
+    const upcoming=history.filter(item=>item&&isValidISODate(item.from)&&item.from>dateStr&&Array.isArray(item.days))
+      .sort((a,b)=>a.from.localeCompare(b.from))[0];
+    if(upcoming) return upcoming.days.slice();
+  }
+  return pplScheduleForDate(dateStr);
+}
 function sourceDayForDate(dateStr,dayIndex){
+  if(S.activeRoutine==='custom'){
+    const selected=getPlanForDate(dateStr)[dayIndex];
+    return selected?getCustomPlan().find(day=>day.scheduleId===selected.scheduleId)||null:null;
+  }
   if(S.activeRoutine!=='ppl') return getPlan()[dayIndex]||null;
-  const type=pplScheduleForDate(dateStr)[dayIndex];
-  if(!type||type==='Rest') return null;
-  return (S.routines.ppl||[]).find(day=>pplDayType(day.name)===type.toLowerCase())||null;
+  return pplSourceDayForDate(dateStr,dayIndex);
 }
 function cloneExerciseTemplate(exercises){
   return (Array.isArray(exercises)?exercises:[]).filter(ex=>ex&&typeof ex.id==='string'&&typeof ex.name==='string').map(ex=>({
@@ -1441,13 +1541,41 @@ function pplTemplateForDate(day,dateStr){
   const snapshots=day.pplTemplateHistory.filter(item=>item&&isValidISODate(item.from)&&Array.isArray(item.ex)&&item.from<=dateStr).sort((a,b)=>a.from.localeCompare(b.from));
   return snapshots.length?cloneExerciseTemplate(snapshots[snapshots.length-1].ex):cloneExerciseTemplate(day.ex);
 }
+function pplSourceDayForDate(dateStr,dayIndex){
+  if(!isValidISODate(dateStr)||!Number.isInteger(dayIndex)||dayIndex<0||dayIndex>=PPL_WEEKDAYS.length) return null;
+  const schedule=pplScheduleForDate(dateStr);
+  const type=schedule[dayIndex];
+  if(!type||type==='Rest') return null;
+  const candidates=(S.routines.ppl||[]).filter(day=>pplDayType(day.name)===type.toLowerCase());
+  if(!candidates.length) return null;
+  const occurrence=schedule.slice(0,dayIndex+1).filter(item=>item===type).length-1;
+  return candidates[occurrence%candidates.length]||null;
+}
+function customPlanForDate(dateStr){
+  const plan=getCustomPlan();
+  const schedule=customScheduleForDate(dateStr);
+  const result=plan.map(day=>{
+    const assignment=schedule.find(item=>item&&item.id===day.scheduleId);
+    return assignment?{...day,name:assignment.name}:day;
+  });
+  const present=new Set(result.map(day=>day.scheduleId));
+  schedule.forEach(assignment=>{
+    if(assignment&&!present.has(assignment.id)){
+      result.push({scheduleId:assignment.id,name:assignment.name,ex:[]});
+      present.add(assignment.id);
+    }
+  });
+  return result;
+}
 function getPlanForDate(dateStr){
   const plan=getPlan();
-  if(S.activeRoutine!=='ppl'||!isValidISODate(dateStr)) return plan;
+  if(!isValidISODate(dateStr)) return plan;
+  if(S.activeRoutine==='custom') return customPlanForDate(dateStr);
+  if(S.activeRoutine!=='ppl') return plan;
   const schedule=pplScheduleForDate(dateStr);
   return PPL_WEEKDAYS.map((weekday,index)=>{
     const type=schedule[index]||'Rest';
-    const source=type==='Rest'?null:(S.routines.ppl||[]).find(day=>pplDayType(day.name)===type.toLowerCase());
+    const source=pplSourceDayForDate(dateStr,index);
     return {name:weekday+' - '+type,ex:source?pplTemplateForDate(source,dateStr):[]};
   });
 }
@@ -1531,6 +1659,11 @@ const dayIdx=d=>{
   if(!isValidISODate(d)) return -1;
   const dt = new Date(d+'T00:00');
   if(S.activeRoutine==='ppl') return [1,2,3,4,5,6,0].indexOf(dt.getDay());
+  if(S.activeRoutine==='custom'){
+    const weekdayIndex=[1,2,3,4,5,6,0].indexOf(dt.getDay());
+    const assignment=customScheduleForDate(d)[weekdayIndex];
+    return assignment?getPlanForDate(d).findIndex(day=>day.scheduleId===assignment.id):-1;
+  }
   const dayName = WD[dt.getDay()].toLowerCase();
   const plan = getPlan();
   let idx = plan.findIndex(p=>p.name.toLowerCase().includes(dayName));
@@ -3569,7 +3702,7 @@ function vSet(){
 
   h+=`<div class="card">
     <h3>Backup & Export</h3>
-    <textarea id="bk" style="margin-top:8px" spellcheck="false">${esc(JSON.stringify({routines:S.routines, pplScheduleHistory:S.pplScheduleHistory||[], logs:S.logs, archivedExercises:S.archivedExercises||{}, activeRoutine:S.activeRoutine, exerciseUnits:S.exerciseUnits||{}, weightLogs:S.weightLogs||{}, weightUnit:S.weightUnit||'kg', theme:themeForBackup()},null,2))}</textarea>
+    <textarea id="bk" style="margin-top:8px" spellcheck="false">${esc(JSON.stringify({routines:S.routines, pplScheduleHistory:S.pplScheduleHistory||[], customScheduleHistory:S.customScheduleHistory||[], logs:S.logs, archivedExercises:S.archivedExercises||{}, activeRoutine:S.activeRoutine, exerciseUnits:S.exerciseUnits||{}, weightLogs:S.weightLogs||{}, weightUnit:S.weightUnit||'kg', theme:themeForBackup()},null,2))}</textarea>
     <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
       <button class="btn small" data-act="copy">Copy JSON</button>
       <button class="btn small acc" data-act="restore">Restore JSON</button>
@@ -3582,7 +3715,7 @@ function vSet(){
   </div>`;
 
   h+='<div class="card"><h3>App updates</h3><div class="meta" style="margin:6px 0 10px">See what changed in each version.</div><button type="button" class="btn small acc" data-act="whatsnew">What’s New</button></div>';
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.15.0</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.16.0</div></div>`;
 
   return h;
 }
@@ -3762,9 +3895,9 @@ function createTextBackup() {
   lines.push(
     '',
     'FULL RESTORE DATA (keep this section when importing)',
-    'The JSON below preserves routines, PPL schedule history, exercise IDs, all log data, body-weight entries, and theme settings.',
+    'The JSON below preserves routines, PPL and Custom Split schedule history, exercise IDs, all log data, body-weight entries, and theme settings.',
     'LIFTLOG_BACKUP_JSON_BEGIN',
-    JSON.stringify({routines:S.routines,pplScheduleHistory:S.pplScheduleHistory||[],logs:S.logs,archivedExercises:S.archivedExercises||{},activeRoutine:S.activeRoutine,exerciseUnits:S.exerciseUnits||{},weightLogs:S.weightLogs||{},weightUnit:S.weightUnit||'kg',theme:themeForBackup()},null,2),
+    JSON.stringify({routines:S.routines,pplScheduleHistory:S.pplScheduleHistory||[],customScheduleHistory:S.customScheduleHistory||[],logs:S.logs,archivedExercises:S.archivedExercises||{},activeRoutine:S.activeRoutine,exerciseUnits:S.exerciseUnits||{},weightLogs:S.weightLogs||{},weightUnit:S.weightUnit||'kg',theme:themeForBackup()},null,2),
     'LIFTLOG_BACKUP_JSON_END'
   );
   return lines.join('\n')+'\n';
@@ -4745,11 +4878,8 @@ function openPplScheduleEditor(){
   const previous=document.getElementById('ppl-schedule-root');
   if(previous) previous.remove();
   const today=iso(new Date());
-  const nextMonday=new Date(today+'T00:00');
-  const daysUntilMonday=(8-nextMonday.getDay())%7||7;
-  nextMonday.setDate(nextMonday.getDate()+daysUntilMonday);
-  const defaultDate=iso(nextMonday);
-  const assignments=pplScheduleForDate(defaultDate);
+  const defaultDate=today;
+  const assignments=pplScheduleForEditorDate(defaultDate);
   const root=document.createElement('div');
   root.id='ppl-schedule-root';
   root.className='app-confirm-overlay';
@@ -4808,7 +4938,7 @@ function openPplScheduleEditor(){
   });
   root.querySelector('#ppl-schedule-from').addEventListener('change',e=>{
     if(!isValidISODate(e.target.value)) return;
-    pplScheduleForDate(e.target.value).forEach((type,index)=>{
+    pplScheduleForEditorDate(e.target.value).forEach((type,index)=>{
       root.querySelector('[data-ppl-weekday="'+index+'"]').value=type;
     });
     const error=root.querySelector('[data-schedule-error]');
@@ -5306,7 +5436,9 @@ document.addEventListener('click', e => {
   }
   else if(a==='cust-add-day'){
     const plan = getCustomPlan();
-    plan.push({ name: 'Day '+(plan.length+1), ex: [] });
+    const previousSchedule=customScheduleForDate(iso(new Date()));
+    plan.push({ scheduleId:newCustomDayId(),name: 'Day '+(plan.length+1), ex: [] });
+    recordCustomScheduleChange(previousSchedule);
     ui.custEditDay = plan.length - 1;
     saveState(0);
     render(true);
@@ -5322,8 +5454,10 @@ document.addEventListener('click', e => {
       confirmLabel: 'Delete',
       danger: true,
       onConfirm: ()=>{
+        const previousSchedule=customScheduleForDate(iso(new Date()));
         archivePlanExercisesWithHistory([day]);
         plan.splice(di, 1);
+        recordCustomScheduleChange(previousSchedule);
         if(ui.custEditDay === di) ui.custEditDay = null;
         else if(ui.custEditDay != null && ui.custEditDay > di) ui.custEditDay--;
         pruneArchivedExercises();
@@ -5337,11 +5471,14 @@ document.addEventListener('click', e => {
     const plan = getCustomPlan();
     if(di<0 || di>=plan.length) return;
     const src = plan[di];
+    const previousSchedule=customScheduleForDate(iso(new Date()));
     const copy = {
+      scheduleId:newCustomDayId(),
       name: (src.name||'Day')+' (copy)',
       ex: (src.ex||[]).map(e=>({ id: newExerciseId(), name: e.name, sets: e.sets, range: e.range }))
     };
     plan.splice(di+1, 0, copy);
+    recordCustomScheduleChange(previousSchedule);
     ui.custEditDay = di+1;
     saveState(0);
     render(true);
@@ -5352,9 +5489,11 @@ document.addEventListener('click', e => {
     const plan = getCustomPlan();
     const nj = di + dir;
     if(di<0 || nj<0 || nj>=plan.length) return;
+    const previousSchedule=customScheduleForDate(iso(new Date()));
     const tmp = plan[di];
     plan[di] = plan[nj];
     plan[nj] = tmp;
+    recordCustomScheduleChange(previousSchedule);
     if(ui.custEditDay === di) ui.custEditDay = nj;
     else if(ui.custEditDay === nj) ui.custEditDay = di;
     saveState(0);
@@ -5418,8 +5557,10 @@ document.addEventListener('click', e => {
       confirmLabel: 'Reset',
       danger: true,
       onConfirm: ()=>{
+        const previousSchedule=customScheduleForDate(iso(new Date()));
         archivePlanExercisesWithHistory(S.routines.custom);
-        S.routines.custom = buildPlan(CUSTOM_ROUTINE);
+        S.routines.custom = buildCustomPlan();
+        recordCustomScheduleChange(previousSchedule);
         ui.custEditDay = null;
         saveState(0);
         render(true);
@@ -5433,9 +5574,12 @@ document.addEventListener('click', e => {
       confirmLabel: 'Clone',
       danger: false,
       onConfirm: ()=>{
+        const previousSchedule=customScheduleForDate(iso(new Date()));
         const src = S.routines.ppl || buildPlan(PPL_ROUTINE);
         archivePlanExercisesWithHistory(S.routines.custom);
         S.routines.custom = clonePlanWithFreshIds(src);
+        ensureCustomDayIds(S.routines.custom);
+        recordCustomScheduleChange(previousSchedule);
         ui.custEditDay = null;
         saveState(0);
         render(true);
@@ -5537,6 +5681,7 @@ document.addEventListener('click', e => {
     const addToRoutine=S.activeRoutine==='custom';
     const syncPpl=S.activeRoutine==='ppl'&&sourceDay&&pplDayType(sourceDay.name)!==null;
     if(!day||(S.activeRoutine==='ppl'&&!sourceDay)){showAppAlert('This date is a rest day with no workout in your routine, so there is nowhere to add an exercise. Open a scheduled workout day and add it there.');return;}
+    if(addToRoutine&&!sourceDay){showAppAlert('This historical Custom Split day has been removed from the current routine. Its saved workout history is still available, but exercises cannot be added to the removed day.');return;}
     showAppPrompt({
       title:'Add exercise to workout',
       message:addToRoutine
@@ -5836,7 +5981,15 @@ document.addEventListener('change', e => {
     const plan = getCustomPlan();
     if(cust === 'dayname' && plan[di]){
       if(!e.target.value.trim()){ e.target.value = plan[di].name; }
-      else { plan[di].name = e.target.value.trim(); saveState(0); }
+      else {
+        const name=e.target.value.trim();
+        if(name!==plan[di].name){
+          const previousSchedule=customScheduleForDate(iso(new Date()));
+          plan[di].name=name;
+          recordCustomScheduleChange(previousSchedule);
+          saveState(0);
+        }
+      }
     }
     if(cust === 'exname' && plan[di] && plan[di].ex && plan[di].ex[ei]){
       const exercise=plan[di].ex[ei],name=e.target.value.trim();
@@ -6182,4 +6335,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.15.0 -->
+</html><!-- END OF FILE — Lift Log version 1.16.0 -->
