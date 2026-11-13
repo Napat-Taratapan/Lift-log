@@ -1,6 +1,9 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.18.2
+  Current version: 1.18.3
+  Version 1.18.3 change log:
+  - Transfer PPL exercises across all matching split-type days and offer only the other split types.
+
   Version 1.18.2 change log:
   - Remove the redundant previous-session placeholder note from workout log cards.
 
@@ -215,8 +218,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Lift Log">
 <meta name="theme-color" content="#141413">
-<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.18.2">
-<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.18.2">
+<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.18.3">
+<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.18.3">
 <title>Lift Log - Workout & Progress Tracker</title>
 <style>
 :root{
@@ -1929,18 +1932,37 @@ function setPplTemplateFromDate(day,effectiveFrom,template){
   day.ex=pplTemplateForDate(day,iso(now));
   return true;
 }
-function transferPplExercise(sourceDay,exerciseId,targetDay,effectiveFrom){
+function transferPplExercise(sourceDay,exerciseId,targetType,effectiveFrom){
   const plan=S.routines.ppl||[];
-  if(!sourceDay||!targetDay||sourceDay===targetDay||!plan.includes(sourceDay)||!plan.includes(targetDay)||!isValidISODate(effectiveFrom)) return false;
+  const sourceType=sourceDay&&pplDayType(sourceDay.name);
+  const destinationType=String(targetType||'').trim().toLowerCase();
+  if(!sourceDay||!sourceType||!['push','pull','legs'].includes(destinationType)||sourceType===destinationType||
+    !plan.includes(sourceDay)||!isValidISODate(effectiveFrom)) return false;
+  const sourcePeers=plan.filter(day=>pplDayType(day.name)===sourceType);
+  const targetPeers=plan.filter(day=>pplDayType(day.name)===destinationType);
+  if(!sourcePeers.length||!targetPeers.length) return false;
   const sourceTemplate=pplTemplateForDate(sourceDay,effectiveFrom);
   const exercise=sourceTemplate.find(item=>item.id===exerciseId);
   if(!exercise) return false;
-  const targetTemplate=pplTemplateForDate(targetDay,effectiveFrom);
   const key=normName(exercise.name);
-  if(!targetTemplate.some(item=>item.id===exerciseId||normName(item.name)===key))
-    targetTemplate.push({...exercise});
-  setPplTemplateFromDate(sourceDay,effectiveFrom,sourceTemplate.filter(item=>item.id!==exerciseId));
-  setPplTemplateFromDate(targetDay,effectiveFrom,targetTemplate);
+  const updates=[];
+  sourcePeers.forEach(day=>{
+    const template=pplTemplateForDate(day,effectiveFrom);
+    const next=template.filter(item=>item.id!==exerciseId&&normName(item.name)!==key);
+    if(next.length!==template.length) updates.push({day,template:next});
+  });
+  if(!updates.some(update=>update.day===sourceDay)) return false;
+  targetPeers.forEach(day=>{
+    const template=pplTemplateForDate(day,effectiveFrom);
+    if(template.some(item=>item.id===exerciseId||normName(item.name)===key)) return;
+    const movedExercise={...exercise};
+    if(template.some(item=>item.id===movedExercise.id)){
+      movedExercise.id=newPplExerciseId();
+    }
+    template.push(movedExercise);
+    updates.push({day,template});
+  });
+  updates.forEach(update=>setPplTemplateFromDate(update.day,effectiveFrom,update.template));
   invalidateDerived();
   return true;
 }
@@ -4011,7 +4033,7 @@ function vSet(){
   </div>`;
 
   h+='<div class="card"><h3>App updates</h3><div class="meta" style="margin:6px 0 10px">See what changed in each version.</div><button type="button" class="btn small acc" data-act="whatsnew">What’s New</button></div>';
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.18.2</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.18.3</div></div>`;
 
   return h;
 }
@@ -5187,8 +5209,9 @@ function startTransferExercise(exerciseId){
   const sourceDay=sourceDayForDate(ui.date,ui.day);
   let options=[];
   let exercise=selectedExercise;
+  let sourceType=null;
   if(S.activeRoutine==='ppl'){
-    const sourceType=sourceDay&&pplDayType(sourceDay.name);
+    sourceType=sourceDay&&pplDayType(sourceDay.name);
     if(!sourceType){
       showAppAlert('This workout has no PPL template to transfer from.');
       return;
@@ -5200,9 +5223,9 @@ function startTransferExercise(exerciseId){
       showAppAlert('This exercise is no longer in the current PPL template, so it cannot be transferred.');
       return;
     }
-    options=(S.routines.ppl||[]).map((day,index)=>({day,index}))
-      .filter(item=>item.day!==sourceDay&&pplDayType(item.day.name)!==null)
-      .map(item=>({value:String(item.index),label:item.day.name}));
+    options=[...new Set((S.routines.ppl||[]).map(day=>pplDayType(day.name)).filter(Boolean))]
+      .filter(type=>type!==sourceType)
+      .map(type=>({value:type,label:type.charAt(0).toUpperCase()+type.slice(1)}));
   }else if(S.activeRoutine==='custom'){
     if(!sourceDay){
       showAppAlert('This historical Custom Split day is no longer in the routine. Its saved workout history is still available, but exercises cannot be transferred from it.');
@@ -5226,7 +5249,7 @@ function startTransferExercise(exerciseId){
     return;
   }
   const message=S.activeRoutine==='ppl'
-    ? 'This starts today ('+fmt(effectiveFrom)+'). Only the selected destination template changes; other PPL templates and earlier workout history stay unchanged.'
+    ? 'Starting today ('+fmt(effectiveFrom)+'), this moves the exercise from every '+sourceType.charAt(0).toUpperCase()+sourceType.slice(1)+' day to every selected split-type day. Other exercises and earlier workout history stay unchanged.'
     : 'This updates the selected Custom Split day now. Existing logged progress remains attached to this exercise.';
   showAppPrompt({
     title:'Transfer '+exercise.name,
@@ -5237,8 +5260,7 @@ function startTransferExercise(exerciseId){
       const destination=values[0];
       let transferred=false;
       if(S.activeRoutine==='ppl'){
-        const targetDay=(S.routines.ppl||[])[Number(destination)];
-        transferred=transferPplExercise(sourceDay,exercise.id,targetDay,effectiveFrom);
+        transferred=transferPplExercise(sourceDay,exercise.id,destination,effectiveFrom);
       }else{
         const plan=getCustomPlan();
         const source=plan.find(day=>day.scheduleId===sourceDay.scheduleId);
@@ -6866,4 +6888,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.18.2 -->
+</html><!-- END OF FILE — Lift Log version 1.18.3 -->
