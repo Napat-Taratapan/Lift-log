@@ -1,6 +1,18 @@
 <!--
   LIFT LOG — VERSION CONTROL AND AI MAINTENANCE INSTRUCTIONS
-  Current version: 1.16.0
+  Current version: 1.18.2
+  Version 1.18.2 change log:
+  - Remove the redundant previous-session placeholder note from workout log cards.
+
+  Version 1.18.1 change log:
+  - Make PPL and Custom Split schedule drag-and-drop feel responsive with floating previews and smooth settling.
+
+  Version 1.18.0 change log:
+  - Add drag-and-drop PPL scheduling and Custom Split day ordering without changing saved schedule formats.
+
+  Version 1.17.0 change log:
+  - Transfer exercises between specific workout templates, keeping progress IDs and past PPL templates intact.
+
   Version 1.16.0 change log:
   - Preserve distinct PPL workout templates when the same workout type is assigned to multiple weekdays.
   - Keep Custom Split weekday assignments stable in past dates after schedule edits.
@@ -203,8 +215,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Lift Log">
 <meta name="theme-color" content="#141413">
-<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.16.0">
-<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.16.0">
+<link rel="icon" type="image/png" sizes="48x48" href="./favicon-48.png?v=1.18.2">
+<link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./apple-touch-icon.png?v=1.18.2">
 <title>Lift Log - Workout & Progress Tracker</title>
 <style>
 :root{
@@ -420,8 +432,57 @@ h3 .ex-name-input{margin:0;border:1px solid var(--acc);box-shadow:0 0 0 2px var(
 .routine-day{
   border:1px solid var(--line); border-radius:12px; margin-top:8px; overflow:hidden; background:var(--bg);
 }
+.routine-day.is-dragging,.ppl-schedule-row.is-dragging{opacity:.2}
+.routine-day.drop-target,.ppl-schedule-row.drop-target{outline:2px solid var(--acc);outline-offset:1px}
+.routine-day.routine-day-floating{
+  z-index:3000;pointer-events:none;transition:none!important;
+  border-color:var(--acc);box-shadow:0 16px 36px rgba(0,0,0,.4);
+}
+.routine-day.routine-day-placeholder{
+  visibility:hidden;pointer-events:none;box-shadow:none;background:transparent;
+  border:1px dashed var(--acc);
+}
+.routine-day.routine-day-shift{
+  transition:transform .22s cubic-bezier(.22,1,.36,1)!important;will-change:transform;
+}
+body.routine-day-reordering{
+  user-select:none;-webkit-user-select:none;cursor:grabbing;overscroll-behavior:contain;touch-action:none;
+}
 .routine-day-head{
   display:flex; align-items:center; gap:6px; padding:8px; flex-wrap:wrap;
+}
+.routine-day-drag,.ppl-schedule-drag{
+  flex:none;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;
+}
+.routine-day-drag:active,.ppl-schedule-drag:active{cursor:grabbing}
+.ppl-schedule-row{
+  display:flex;align-items:center;gap:10px;padding:7px 8px;border-bottom:1px solid var(--line);
+  border-radius:8px;min-height:48px;
+  transition:background-color .18s ease,box-shadow .18s ease,transform .22s cubic-bezier(.22,1,.36,1);
+}
+.ppl-schedule-row>span:first-child{flex:1}
+.ppl-schedule-assignment{
+  min-width:82px;padding:7px 10px;text-align:center;border:1px solid var(--line);
+  border-radius:9px;background:var(--card);font-weight:700;
+  transition:transform .22s cubic-bezier(.22,1,.36,1),background-color .18s ease;
+}
+.ppl-schedule-row.drop-target{
+  outline:0;background:color-mix(in srgb,var(--acc) 10%,transparent);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--acc) 54%,transparent);
+}
+.ppl-schedule-row.is-dragging{background:color-mix(in srgb,var(--acc) 7%,transparent)}
+.ppl-schedule-drag-ghost{
+  position:fixed;z-index:3000;margin:0;pointer-events:none;opacity:.96;
+  border-color:var(--acc);background:var(--card);box-shadow:0 16px 36px rgba(0,0,0,.4);
+  transition:none!important;will-change:top,left;
+}
+.ppl-schedule-row.is-changing .ppl-schedule-assignment{
+  animation:pplScheduleSwap .28s cubic-bezier(.22,1,.36,1);
+}
+@keyframes pplScheduleSwap{
+  0%{transform:scale(.92);background-color:var(--accbg)}
+  65%{transform:scale(1.05)}
+  100%{transform:scale(1);background-color:var(--card)}
 }
 .routine-day-head input.day-name{
   flex:1; min-width:120px; font-weight:700; font-size:14px; padding:6px 8px;
@@ -445,6 +506,8 @@ h3 .ex-name-input{margin:0;border:1px solid var(--acc);box-shadow:0 0 0 2px var(
   .exercise-card.ctx-pressed, .exercise-card.ctx-pressing{ transform: none; }
   .ex-ctx-menu, .ex-ctx-menu.place-above{ animation: none; }
   .app-confirm-card{ animation: none; }
+  .routine-day-shift{ transition:none!important; }
+  .ppl-schedule-row.is-changing .ppl-schedule-assignment{ animation:none!important; }
 }
 
 
@@ -1047,21 +1110,37 @@ function customScheduleForDate(dateStr){
     .sort((a,b)=>a.from.localeCompare(b.from));
   return revisions.length?revisions[revisions.length-1].days.map(day=>day?{id:day.id,name:day.name}:null):customScheduleSnapshot();
 }
-function recordCustomScheduleChange(previousSchedule){
+function recordCustomScheduleChange(previousSchedule,preserveFuture=false){
   const today=iso(new Date());
   const history=Array.isArray(S.customScheduleHistory)?S.customScheduleHistory.slice():[];
   if(!history.some(item=>item&&isValidISODate(item.from)&&item.from<today)){
     history.push({from:'0001-01-01',days:previousSchedule.map(day=>day?{id:day.id,name:day.name}:null)});
   }
-  S.customScheduleHistory=history.filter(item=>item&&isValidISODate(item.from)&&item.from<today);
+  S.customScheduleHistory=history.filter(item=>item&&isValidISODate(item.from)&&(item.from<today||(preserveFuture&&item.from>today)));
   S.customScheduleHistory.push({from:today,days:customScheduleSnapshot()});
   S.customScheduleHistory.sort((a,b)=>a.from.localeCompare(b.from));
+}
+function moveCustomSplitDay(fromIndex,toIndex){
+  const plan=getCustomPlan();
+  if(!Number.isInteger(fromIndex)||!Number.isInteger(toIndex)||fromIndex<0||toIndex<0||
+    fromIndex>=plan.length||toIndex>=plan.length||fromIndex===toIndex) return false;
+  const ids=plan.map(day=>day&&day.scheduleId);
+  if(ids.some(id=>typeof id!=='string'||!id)||new Set(ids).size!==ids.length) return false;
+  const openDayId=plan[ui.custEditDay]&&plan[ui.custEditDay].scheduleId;
+  const previousSchedule=customScheduleForDate(iso(new Date()));
+  const [moved]=plan.splice(fromIndex,1);
+  plan.splice(toIndex,0,moved);
+  recordCustomScheduleChange(previousSchedule,true);
+  ui.custEditDay=openDayId?plan.findIndex(day=>day.scheduleId===openDayId):null;
+  saveState(0);
+  render(true);
+  return true;
 }
 function renderCustomRoutineEditor(){
   const plan = getCustomPlan();
   let h = '<div class="card" id="custom-routine-editor">';
   h += '<h3>Edit Custom Split</h3>';
-  h += '<div class="meta" style="margin-top:6px">Arrange days and exercises for the Custom Split. Push–Pull–Legs is never changed.</div>';
+  h += '<div class="meta" style="margin-top:6px">Drag the grip to reorder days. Named weekdays stay assigned by name; unnamed days follow list order. Push–Pull–Legs is never changed.</div>';
   h += '<div class="routine-tools" style="margin-top:10px">';
   h += '<button type="button" class="btn small acc" data-act="cust-add-day">+ Day</button>';
   h += '<button type="button" class="btn small" data-act="cust-clone-ppl">Clone from PPL</button>';
@@ -1077,9 +1156,8 @@ function renderCustomRoutineEditor(){
     const nEx = (day.ex||[]).length;
     h += '<div class="routine-day" data-cust-day="'+di+'">';
     h += '<div class="routine-day-head">';
+    h += '<button type="button" class="btn small icon-btn routine-day-drag" data-cust-day-drag data-day-id="'+esc(day.scheduleId)+'" data-di="'+di+'" aria-keyshortcuts="ArrowUp ArrowDown" aria-label="Drag to reorder '+esc(day.name)+'" title="Drag to reorder">⠿</button>';
     h += '<input class="day-name" data-cust="dayname" data-di="'+di+'" value="'+esc(day.name)+'" aria-label="Day name">';
-    h += '<button type="button" class="btn small icon-btn" data-act="cust-move-day" data-di="'+di+'" data-v="-1" title="Move up" aria-label="Move day up" '+(di===0?'disabled style="opacity:.35"':'')+'>↑</button>';
-    h += '<button type="button" class="btn small icon-btn" data-act="cust-move-day" data-di="'+di+'" data-v="1" title="Move down" aria-label="Move day down" '+(di===plan.length-1?'disabled style="opacity:.35"':'')+'>↓</button>';
     h += '<button type="button" class="btn small" data-act="cust-toggle-day" data-di="'+di+'">'+(open?'Hide':'Edit')+'</button>';
     h += '<button type="button" class="btn small" data-act="cust-dup-day" data-di="'+di+'" title="Duplicate day">Copy</button>';
     h += '<button type="button" class="btn small icon-btn danger" data-act="cust-del-day" data-di="'+di+'" title="Delete day" aria-label="Delete day"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>';
@@ -1134,13 +1212,204 @@ function openCustomSplitEditor(){
     '<div data-custom-split-content>'+renderCustomRoutineEditor()+'</div>'+
     '</section>';
   const close=()=>{
+    if(root._cancelRoutineDayDrag) root._cancelRoutineDayDrag();
     root.remove();
+    document.removeEventListener('pointermove',onRoutineDayPointerMove);
+    document.removeEventListener('pointerup',finishRoutineDayDrag);
+    document.removeEventListener('pointercancel',finishRoutineDayDrag);
+    window.removeEventListener('blur',finishRoutineDayDrag);
     document.removeEventListener('keydown',onKey);
   };
   const onKey=e=>{
     if(e.key==='Escape'){e.preventDefault();close();}
   };
   root._closeCustomSplitEditor=close;
+  let routineDayDrag=null;
+  let dayDragAutoScroll=null;
+  const stopDayDragAutoScroll=()=>{
+    if(dayDragAutoScroll){clearInterval(dayDragAutoScroll);dayDragAutoScroll=null;}
+  };
+  const restoreRoutineDayDrag=drag=>{
+    if(!drag) return;
+    const placeholder=drag.placeholder;
+    if(placeholder&&placeholder.parentNode){
+      placeholder.parentNode.insertBefore(drag.card,placeholder);
+      placeholder.remove();
+    }else if(drag.card.parentNode!==drag.list){
+      drag.list.insertBefore(drag.card,drag.originalNext&&drag.originalNext.parentNode===drag.list?drag.originalNext:null);
+    }
+    drag.card.classList.remove('routine-day-floating','routine-day-shift','is-dragging');
+    ['position','left','top','width','height','margin','zIndex','pointerEvents','transition','transform'].forEach(property=>drag.card.style[property]='');
+    document.body.classList.remove('routine-day-reordering');
+  };
+  const clearRoutineDayDrag=()=>{
+    stopDayDragAutoScroll();
+    const drag=routineDayDrag;
+    if(drag&&drag.settleTimer) clearTimeout(drag.settleTimer);
+    restoreRoutineDayDrag(drag);
+    root.querySelectorAll('.routine-day.is-dragging,.routine-day.drop-target').forEach(day=>day.classList.remove('is-dragging','drop-target'));
+    routineDayDrag=null;
+  };
+  root._cancelRoutineDayDrag=clearRoutineDayDrag;
+  const liftRoutineDay=(drag,e)=>{
+    const card=drag.card,rect=card.getBoundingClientRect(),style=getComputedStyle(card);
+    const placeholder=document.createElement('div');
+    placeholder.className='routine-day routine-day-placeholder';
+    placeholder.style.height=rect.height+'px';
+    placeholder.style.marginTop=style.marginTop;
+    drag.placeholder=placeholder;
+    drag.offsetY=e.clientY-rect.top;
+    drag.left=rect.left;
+    drag.list.insertBefore(placeholder,card);
+    card.classList.add('routine-day-floating');
+    card.style.position='fixed';
+    card.style.left=rect.left+'px';
+    card.style.top=rect.top+'px';
+    card.style.width=rect.width+'px';
+    card.style.height=rect.height+'px';
+    card.style.margin='0';
+    card.style.zIndex='3000';
+    card.style.pointerEvents='none';
+    document.body.appendChild(card);
+    document.body.classList.add('routine-day-reordering');
+    haptic(8);
+  };
+  const flipRoutineDays=drag=>{
+    if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches) return ()=>{};
+    const cards=[...drag.list.children].filter(el=>el!==drag.placeholder&&el.hasAttribute&&el.hasAttribute('data-cust-day'));
+    const before=new Map(cards.map(card=>[card,card.getBoundingClientRect().top]));
+    return ()=>{
+      cards.forEach(card=>{
+        const top0=before.get(card),top1=card.getBoundingClientRect().top;
+        const dy=top0-top1;
+        if(Math.abs(dy)<1) return;
+        card.classList.remove('routine-day-shift');
+        card.style.transition='none';
+        card.style.transform='translateY('+dy+'px)';
+        void card.offsetWidth;
+        card.classList.add('routine-day-shift');
+        card.style.transition='';
+        card.style.transform='';
+        const clear=()=>{
+          card.classList.remove('routine-day-shift');
+          card.style.transform='';
+          card.removeEventListener('transitionend',clear);
+        };
+        card.addEventListener('transitionend',clear);
+      });
+    };
+  };
+  const moveRoutineDayPlaceholder=(drag,clientY)=>{
+    const placeholder=drag.placeholder;
+    if(!placeholder||!placeholder.parentNode) return;
+    const siblings=[...drag.list.children].filter(el=>el!==placeholder&&el.hasAttribute&&el.hasAttribute('data-cust-day'));
+    let insertBefore=null;
+    for(const sibling of siblings){
+      const rect=sibling.getBoundingClientRect();
+      if(clientY<rect.top+rect.height/2){insertBefore=sibling;break;}
+    }
+    let afterPlaceholder=placeholder.nextElementSibling;
+    while(afterPlaceholder&&!afterPlaceholder.hasAttribute('data-cust-day')) afterPlaceholder=afterPlaceholder.nextElementSibling;
+    if(insertBefore===afterPlaceholder) return;
+    const play=flipRoutineDays(drag);
+    if(insertBefore) drag.list.insertBefore(placeholder,insertBefore);
+    else drag.list.appendChild(placeholder);
+    play();
+  };
+  const routineDayDestinationIndex=drag=>{
+    const entries=[...drag.list.children].filter(el=>el===drag.placeholder||(el.hasAttribute&&el.hasAttribute('data-cust-day')));
+    return entries.indexOf(drag.placeholder);
+  };
+  const finishRoutineDayDrag=e=>{
+    if(!routineDayDrag||(e&&routineDayDrag.pointerId!==undefined&&e.pointerId!==undefined&&e.pointerId!==routineDayDrag.pointerId)) return;
+    const drag=routineDayDrag;
+    if(drag.settling) return;
+    if(!drag.moved||!drag.placeholder){clearRoutineDayDrag();return;}
+    const plan=getCustomPlan();
+    const fromIndex=plan.findIndex(day=>day.scheduleId===drag.dayId);
+    const toIndex=routineDayDestinationIndex(drag);
+    if(fromIndex<0||toIndex<0||toIndex===fromIndex){clearRoutineDayDrag();return;}
+    drag.settling=true;
+    stopDayDragAutoScroll();
+    document.body.classList.remove('routine-day-reordering');
+    const destination=drag.placeholder.getBoundingClientRect();
+    const reducedMotion=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const finish=()=>{
+      if(routineDayDrag!==drag) return;
+      if(drag.settleTimer) clearTimeout(drag.settleTimer);
+      drag.settleTimer=null;
+      clearRoutineDayDrag();
+      moveCustomSplitDay(fromIndex,toIndex);
+    };
+    if(reducedMotion){finish();return;}
+    drag.card.style.transition='top .18s cubic-bezier(.22,1,.36,1),left .18s cubic-bezier(.22,1,.36,1),width .18s cubic-bezier(.22,1,.36,1)';
+    requestAnimationFrame(()=>{
+      if(routineDayDrag!==drag) return;
+      drag.card.style.top=destination.top+'px';
+      drag.card.style.left=destination.left+'px';
+      drag.card.style.width=destination.width+'px';
+    });
+    drag.settleTimer=setTimeout(finish,200);
+  };
+  root.addEventListener('pointerdown',e=>{
+    const handle=e.target.closest('[data-cust-day-drag]');
+    if(!handle||e.button>0) return;
+    const card=handle.closest('[data-cust-day]');
+    const index=Number(handle.getAttribute('data-di'));
+    const day=getCustomPlan()[index];
+    if(!card||!day||!day.scheduleId||routineDayDrag) return;
+    routineDayDrag={dayId:day.scheduleId,card,list:card.parentNode,originalNext:card.nextSibling,startX:e.clientX,startY:e.clientY,lastY:e.clientY,pointerId:e.pointerId,moved:false,settling:false,placeholder:null};
+    e.preventDefault();
+  });
+  const onRoutineDayPointerMove=e=>{
+    if(!routineDayDrag||(routineDayDrag.pointerId!==undefined&&e.pointerId!==routineDayDrag.pointerId)) return;
+    const drag=routineDayDrag;
+    if(drag.settling) return;
+    drag.lastY=e.clientY;
+    if(!drag.moved&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)>5){
+      drag.moved=true;
+      liftRoutineDay(drag,e);
+    }
+    if(!drag.moved) return;
+    drag.card.style.top=(e.clientY-drag.offsetY)+'px';
+    drag.card.style.left=drag.left+'px';
+    moveRoutineDayPlaceholder(drag,e.clientY);
+    const scroller=root.querySelector('.app-confirm-card');
+    if(scroller){
+      const rect=scroller.getBoundingClientRect(), edge=54;
+      const direction=e.clientY<rect.top+edge?-1:e.clientY>rect.bottom-edge?1:0;
+      if(direction&&!dayDragAutoScroll){
+        dayDragAutoScroll=setInterval(()=>{
+          if(!routineDayDrag||!routineDayDrag.moved||routineDayDrag.settling){stopDayDragAutoScroll();return;}
+          const current=scroller.getBoundingClientRect(),y=routineDayDrag.lastY;
+          let step=0;
+          if(y<current.top+edge) step=-Math.max(3,Math.ceil((current.top+edge-y)/4));
+          else if(y>current.bottom-edge) step=Math.max(3,Math.ceil((y-(current.bottom-edge))/4));
+          if(step){scroller.scrollTop+=step;moveRoutineDayPlaceholder(routineDayDrag,y);}
+          else stopDayDragAutoScroll();
+        },16);
+      }else if(!direction&&dayDragAutoScroll){clearInterval(dayDragAutoScroll);dayDragAutoScroll=null;}
+    }
+    e.preventDefault();
+  };
+  document.addEventListener('pointermove',onRoutineDayPointerMove,{passive:false});
+  document.addEventListener('pointerup',finishRoutineDayDrag);
+  document.addEventListener('pointercancel',finishRoutineDayDrag);
+  window.addEventListener('blur',finishRoutineDayDrag);
+  root.addEventListener('keydown',e=>{
+    const handle=e.target.closest('[data-cust-day-drag]');
+    if(!handle||!['ArrowUp','ArrowDown'].includes(e.key)) return;
+    const fromIndex=Number(handle.getAttribute('data-di'));
+    const toIndex=fromIndex+(e.key==='ArrowUp'?-1:1);
+    if(toIndex<0||toIndex>=getCustomPlan().length) return;
+    const dayId=handle.getAttribute('data-day-id');
+    e.preventDefault();
+    if(moveCustomSplitDay(fromIndex,toIndex)){
+      requestAnimationFrame(()=>{
+        [...root.querySelectorAll('[data-cust-day-drag]')].find(item=>item.getAttribute('data-day-id')===dayId)?.focus();
+      });
+    }
+  });
   root.addEventListener('click',e=>{
     if(e.target===root||e.target.closest('[data-cust-editor-close]')) close();
   });
@@ -1646,6 +1915,34 @@ function syncPplPlannedSets(sourceDay,exerciseId,setCount,effectiveFrom){
   if(!exercise) return false;
   exercise.sets=setCount;
   return syncPplTemplateFromDay(sourceDay,template,effectiveFrom);
+}
+function setPplTemplateFromDate(day,effectiveFrom,template){
+  if(!day||!Array.isArray(template)||!isValidISODate(effectiveFrom)) return false;
+  const history=Array.isArray(day.pplTemplateHistory)
+    ? day.pplTemplateHistory.filter(item=>item&&isValidISODate(item.from)&&Array.isArray(item.ex))
+    : [];
+  if(!history.some(item=>item.from==='0001-01-01'))
+    history.push({from:'0001-01-01',ex:cloneExerciseTemplate(day.ex)});
+  day.pplTemplateHistory=history.filter(item=>item.from<effectiveFrom);
+  day.pplTemplateHistory.push({from:effectiveFrom,ex:cloneExerciseTemplate(template)});
+  day.pplTemplateHistory.sort((a,b)=>a.from.localeCompare(b.from));
+  day.ex=pplTemplateForDate(day,iso(now));
+  return true;
+}
+function transferPplExercise(sourceDay,exerciseId,targetDay,effectiveFrom){
+  const plan=S.routines.ppl||[];
+  if(!sourceDay||!targetDay||sourceDay===targetDay||!plan.includes(sourceDay)||!plan.includes(targetDay)||!isValidISODate(effectiveFrom)) return false;
+  const sourceTemplate=pplTemplateForDate(sourceDay,effectiveFrom);
+  const exercise=sourceTemplate.find(item=>item.id===exerciseId);
+  if(!exercise) return false;
+  const targetTemplate=pplTemplateForDate(targetDay,effectiveFrom);
+  const key=normName(exercise.name);
+  if(!targetTemplate.some(item=>item.id===exerciseId||normName(item.name)===key))
+    targetTemplate.push({...exercise});
+  setPplTemplateFromDate(sourceDay,effectiveFrom,sourceTemplate.filter(item=>item.id!==exerciseId));
+  setPplTemplateFromDate(targetDay,effectiveFrom,targetTemplate);
+  invalidateDerived();
+  return true;
 }
 function isPplTemplateExercise(day,exerciseId,dateStr){
   return S.activeRoutine==='ppl'&&!!day&&pplDayType(day.name)!==null&&
@@ -3154,7 +3451,7 @@ function renderLogExercisesForDate(dStr){
     const isExtra = idx >= d.ex.length;
     const sharedPplExercise=sharedPplDay&&!isExtra;
     const rec=(S.logs[dStr]||{})[e.id]||{sets:[],note:''};
-    const lbr=lastBeforeRec(e.id,dStr),lb=lbr?lbr.date:null,lr=lbr?lbr.rec:null;
+    const lbr=lastBeforeRec(e.id,dStr),lr=lbr?lbr.rec:null;
     const n=visibleSetCount(e, rec, dStr);
     const tip=exerciseRecommendation(e,dStr);
     const feedback=loadCoachFeedback();
@@ -3182,8 +3479,7 @@ function renderLogExercisesForDate(dStr){
         </span>
       </h3>
       <div class="exercise-card-body"${initiallyCollapsed?' inert':''}><div class="exercise-card-body-inner">
-      <div class="meta">${e.sets} sets × ${esc(e.range)} reps</div>
-      ${lr?`<div class="meta">Previous session suggestions · ${esc(lb)} · placeholders only</div>`:''}`;
+      <div class="meta">${e.sets} sets × ${esc(e.range)} reps</div>`;
     if(tip&&!hideTip){
       const headline=tip.kind==='increase'?'Consider increasing weight next session.':tip.kind==='reduce'?'Consider reducing the load slightly.':tip.kind==='sets'?'You have consistently completed extra sets.':'Your recent progress may have leveled off.';
       h+=`<div class="coach-advice"><b>Next session:</b> ${headline}<details class="coach-details"><summary>Why this suggestion?</summary><div class="coach-details-body">${tip.text?esc(tip.text):''}${tip.plateau?'<div style="margin-top:6px"><b>Plateau:</b> '+esc(tip.plateau)+'</div>':''}<div class="coach-actions"><button type="button" data-act="dismiss-coach" data-id="${esc(e.id)}" data-v="${esc(dStr)}">Dismiss</button><button type="button" data-act="not-useful-coach" data-id="${esc(e.id)}" data-v="${esc(tip.kind)}">Not useful</button></div></div></details></div>`;
@@ -3715,7 +4011,7 @@ function vSet(){
   </div>`;
 
   h+='<div class="card"><h3>App updates</h3><div class="meta" style="margin:6px 0 10px">See what changed in each version.</div><button type="button" class="btn small acc" data-act="whatsnew">What’s New</button></div>';
-  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.16.0</div></div>`;
+  h+=`<div class="card" style="text-align:center"><div class="meta">Version: 1.18.2</div></div>`;
 
   return h;
 }
@@ -3895,7 +4191,7 @@ function createTextBackup() {
   lines.push(
     '',
     'FULL RESTORE DATA (keep this section when importing)',
-    'The JSON below preserves routines, PPL and Custom Split schedule history, exercise IDs, all log data, body-weight entries, and theme settings.',
+    'The JSON below preserves routines, PPL exercise-template and schedule history, Custom Split schedule history, exercise IDs, all log data, body-weight entries, and theme settings.',
     'LIFTLOG_BACKUP_JSON_BEGIN',
     JSON.stringify({routines:S.routines,pplScheduleHistory:S.pplScheduleHistory||[],customScheduleHistory:S.customScheduleHistory||[],logs:S.logs,archivedExercises:S.archivedExercises||{},activeRoutine:S.activeRoutine,exerciseUnits:S.exerciseUnits||{},weightLogs:S.weightLogs||{},weightUnit:S.weightUnit||'kg',theme:themeForBackup()},null,2),
     'LIFTLOG_BACKUP_JSON_END'
@@ -4860,7 +5156,14 @@ function showAppAlert(message, onClose){
 function showAppPrompt({title,message,fields,confirmLabel='Save',onSubmit}){
   const prev=document.getElementById('app-prompt-root');if(prev)prev.remove();
   const root=document.createElement('div');root.id='app-prompt-root';root.className='app-confirm-overlay';root.setAttribute('role','dialog');root.setAttribute('aria-modal','true');
-  const fieldHtml=(fields||[]).map((field,index)=>'<label style="display:block;margin:10px 0 4px;font-size:13px;color:var(--mute)" for="app-prompt-field-'+index+'">'+esc(field.label||'')+'</label><input id="app-prompt-field-'+index+'" type="'+esc(field.type||'text')+'" value="'+esc(field.value??'')+'" placeholder="'+esc(field.placeholder||'')+'"'+(field.min!==undefined?' min="'+esc(field.min)+'"':'')+(field.max!==undefined?' max="'+esc(field.max)+'"':'')+(field.step!==undefined?' step="'+esc(field.step)+'"':'')+' style="width:100%">').join('');
+  const fieldHtml=(fields||[]).map((field,index)=>{
+    const label='<label style="display:block;margin:10px 0 4px;font-size:13px;color:var(--mute)" for="app-prompt-field-'+index+'">'+esc(field.label||'')+'</label>';
+    if(field.type==='select'){
+      const options=(field.options||[]).map(option=>'<option value="'+esc(option.value)+'" '+(String(option.value)===String(field.value??'')?'selected':'')+'>'+esc(option.label)+'</option>').join('');
+      return label+'<select id="app-prompt-field-'+index+'" style="width:100%">'+options+'</select>';
+    }
+    return label+'<input id="app-prompt-field-'+index+'" type="'+esc(field.type||'text')+'" value="'+esc(field.value??'')+'" placeholder="'+esc(field.placeholder||'')+'"'+(field.min!==undefined?' min="'+esc(field.min)+'"':'')+(field.max!==undefined?' max="'+esc(field.max)+'"':'')+(field.step!==undefined?' step="'+esc(field.step)+'"':'')+' style="width:100%">';
+  }).join('');
   root.innerHTML='<div class="app-confirm-card"><h2>'+esc(title||'Enter details')+'</h2>'+(message?'<p>'+esc(message)+'</p>':'')+'<div>'+fieldHtml+'</div><div class="app-confirm-actions" style="margin-top:16px"><button type="button" class="btn" data-prompt="cancel">Cancel</button><button type="button" class="btn acc" data-prompt="ok">'+esc(confirmLabel)+'</button></div></div>';
   const finish=(submit)=>{
     const values=(fields||[]).map((_,index)=>root.querySelector('#app-prompt-field-'+index)?.value??'');
@@ -4870,7 +5173,92 @@ function showAppPrompt({title,message,fields,confirmLabel='Save',onSubmit}){
   const onKey=e=>{if(e.key==='Escape'){e.preventDefault();finish(false);}else if(e.key==='Enter'&&e.target.tagName!=='TEXTAREA'){e.preventDefault();finish(true);}};
   root.addEventListener('click',e=>{if(e.target===root)finish(false);const button=e.target.closest('[data-prompt]');if(button)finish(button.getAttribute('data-prompt')==='ok');});
   document.addEventListener('keydown',onKey);document.body.appendChild(root);
-  const first=root.querySelector('input');if(first)setTimeout(()=>first.focus(),30);else root.querySelector('[data-prompt="ok"]')?.focus();
+  const first=root.querySelector('input, select');if(first)setTimeout(()=>first.focus(),30);else root.querySelector('[data-prompt="ok"]')?.focus();
+}
+
+function startTransferExercise(exerciseId){
+  const selectedDay=getPlanForDate(ui.date)[ui.day];
+  const selectedExercise=selectedDay&&selectedDay.ex&&selectedDay.ex.find(item=>item.id===exerciseId);
+  if(!selectedExercise){
+    showAppAlert('Only an exercise in the workout routine can be transferred.');
+    return;
+  }
+  const effectiveFrom=iso(new Date());
+  const sourceDay=sourceDayForDate(ui.date,ui.day);
+  let options=[];
+  let exercise=selectedExercise;
+  if(S.activeRoutine==='ppl'){
+    const sourceType=sourceDay&&pplDayType(sourceDay.name);
+    if(!sourceType){
+      showAppAlert('This workout has no PPL template to transfer from.');
+      return;
+    }
+    const currentTemplate=pplTemplateForDate(sourceDay,effectiveFrom);
+    exercise=currentTemplate.find(item=>item.id===exerciseId)||
+      currentTemplate.find(item=>normName(item.name)===normName(selectedExercise.name));
+    if(!exercise){
+      showAppAlert('This exercise is no longer in the current PPL template, so it cannot be transferred.');
+      return;
+    }
+    options=(S.routines.ppl||[]).map((day,index)=>({day,index}))
+      .filter(item=>item.day!==sourceDay&&pplDayType(item.day.name)!==null)
+      .map(item=>({value:String(item.index),label:item.day.name}));
+  }else if(S.activeRoutine==='custom'){
+    if(!sourceDay){
+      showAppAlert('This historical Custom Split day is no longer in the routine. Its saved workout history is still available, but exercises cannot be transferred from it.');
+      return;
+    }
+    const currentSource=getCustomPlan().find(day=>day.scheduleId===sourceDay.scheduleId);
+    exercise=currentSource&&currentSource.ex.find(item=>item.id===exerciseId)||
+      currentSource&&currentSource.ex.find(item=>normName(item.name)===normName(selectedExercise.name));
+    if(!exercise){
+      showAppAlert('This exercise is no longer in the current Custom Split day, so it cannot be transferred.');
+      return;
+    }
+    options=getCustomPlan().filter(day=>day.scheduleId!==sourceDay.scheduleId)
+      .map(day=>({value:day.scheduleId,label:day.name}));
+  }else{
+    showAppAlert('Transfers are available for Push-Pull-Legs and Custom Split workouts.');
+    return;
+  }
+  if(!options.length){
+    showAppAlert('There is no other workout day available to transfer this exercise to.');
+    return;
+  }
+  const message=S.activeRoutine==='ppl'
+    ? 'This starts today ('+fmt(effectiveFrom)+'). Only the selected destination template changes; other PPL templates and earlier workout history stay unchanged.'
+    : 'This updates the selected Custom Split day now. Existing logged progress remains attached to this exercise.';
+  showAppPrompt({
+    title:'Transfer '+exercise.name,
+    message,
+    fields:[{label:'Destination',type:'select',value:options[0].value,options}],
+    confirmLabel:'Transfer',
+    onSubmit:values=>{
+      const destination=values[0];
+      let transferred=false;
+      if(S.activeRoutine==='ppl'){
+        const targetDay=(S.routines.ppl||[])[Number(destination)];
+        transferred=transferPplExercise(sourceDay,exercise.id,targetDay,effectiveFrom);
+      }else{
+        const plan=getCustomPlan();
+        const source=plan.find(day=>day.scheduleId===sourceDay.scheduleId);
+        const target=plan.find(day=>day.scheduleId===destination);
+        if(source&&target&&source!==target){
+          const targetHasExercise=target.ex.some(item=>item.id===exercise.id||normName(item.name)===normName(exercise.name));
+          source.ex=source.ex.filter(item=>item.id!==exercise.id);
+          if(!targetHasExercise) target.ex.push({...exercise});
+          transferred=true;
+        }
+      }
+      if(!transferred){
+        showAppAlert('Could not transfer this exercise. No routine changes were applied.');
+        return;
+      }
+      delete ui.extra[exercise.id];
+      saveState(0);
+      render();
+    }
+  });
 }
 
 function openPplScheduleEditor(){
@@ -4879,28 +5267,180 @@ function openPplScheduleEditor(){
   if(previous) previous.remove();
   const today=iso(new Date());
   const defaultDate=today;
-  const assignments=pplScheduleForEditorDate(defaultDate);
+  let assignments=pplScheduleForEditorDate(defaultDate);
   const root=document.createElement('div');
   root.id='ppl-schedule-root';
   root.className='app-confirm-overlay';
   root.setAttribute('role','dialog');
   root.setAttribute('aria-modal','true');
   root.setAttribute('aria-labelledby','ppl-schedule-title');
-  const rows=PPL_WEEKDAYS.map((weekday,index)=>
-    '<label style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line)"><span>'+weekday+'</span><select data-ppl-weekday="'+index+'" aria-label="'+weekday+' workout" style="width:132px;max-width:52%;font-size:14px;padding:7px">'+
-    PPL_SCHEDULE_TYPES.map(type=>'<option value="'+type+'" '+(assignments[index]===type?'selected':'')+'>'+type+'</option>').join('')+
-    '</select></label>'
+  const rows=()=>PPL_WEEKDAYS.map((weekday,index)=>
+    '<div class="ppl-schedule-row" data-ppl-weekday="'+index+'">'+
+    '<span>'+weekday+'</span>'+
+    '<button type="button" class="btn small icon-btn ppl-schedule-drag" data-ppl-drag="'+index+'" aria-label="Drag '+esc(assignments[index])+' from '+weekday+' to another weekday" title="Drag to swap weekdays">⠿</button>'+
+    '<span class="ppl-schedule-assignment" data-ppl-assignment="'+index+'">'+esc(assignments[index])+'</span>'+
+    '</div>'
   ).join('');
   root.innerHTML='<section class="app-confirm-card" style="width:min(100%,420px);max-height:88vh;overflow:auto" role="document">'+
     '<h2 id="ppl-schedule-title">PPL Schedule</h2>'+
-    '<p>Choose the workout for each weekday. This schedule starts on the selected date and replaces later schedule changes. Earlier dates stay unchanged.</p>'+
+    '<p>Drag a workout assignment onto another weekday to swap them. This preserves the number of each workout and rest day. The schedule starts on the selected date; earlier dates stay unchanged.</p>'+
     '<label for="ppl-schedule-from" style="display:block;margin:10px 0 4px;font-size:13px;color:var(--mute)">Start date</label>'+
     '<input id="ppl-schedule-from" type="date" min="'+today+'" value="'+defaultDate+'" style="width:100%;margin-bottom:10px">'+
-    '<div>'+rows+'</div><div class="meta" data-schedule-error role="alert" style="color:var(--down);margin-top:8px;display:none"></div>'+
+    '<div data-ppl-schedule-rows>'+rows()+'</div><div class="meta" data-schedule-error role="alert" style="color:var(--down);margin-top:8px;display:none"></div>'+
     '<div class="app-confirm-actions" style="margin-top:16px"><button type="button" class="btn" data-schedule="cancel">Cancel</button><button type="button" class="btn acc" data-schedule="save">Save Schedule</button></div>'+
     '</section>';
+  let scheduleDrag=null;
+  let scheduleAutoScroll=null;
+  const stopScheduleAutoScroll=()=>{
+    if(scheduleAutoScroll){clearInterval(scheduleAutoScroll);scheduleAutoScroll=null;}
+  };
+  const clearDragVisuals=()=>{
+    stopScheduleAutoScroll();
+    const drag=scheduleDrag;
+    if(drag&&drag.settleTimer) clearTimeout(drag.settleTimer);
+    if(drag&&drag.ghost) drag.ghost.remove();
+    root.querySelectorAll('.ppl-schedule-row.is-dragging,.ppl-schedule-row.drop-target').forEach(row=>row.classList.remove('is-dragging','drop-target'));
+    scheduleDrag=null;
+  };
+  const refreshAssignments=()=>{
+    PPL_WEEKDAYS.forEach((weekday,index)=>{
+      const label=root.querySelector('[data-ppl-assignment="'+index+'"]');
+      const handle=root.querySelector('[data-ppl-drag="'+index+'"]');
+      if(label) label.textContent=assignments[index];
+      if(handle) handle.setAttribute('aria-label','Drag '+assignments[index]+' from '+weekday+' to another weekday');
+    });
+  };
+  const swapAssignments=(from,to)=>{
+    if(from===to||from<0||to<0||from>=assignments.length||to>=assignments.length) return;
+    const changingRows=[from,to].map(index=>root.querySelector('[data-ppl-weekday="'+index+'"]')).filter(Boolean);
+    changingRows.forEach(row=>row.classList.remove('is-changing'));
+    void root.offsetWidth;
+    [assignments[from],assignments[to]]=[assignments[to],assignments[from]];
+    refreshAssignments();
+    changingRows.forEach(row=>row.classList.add('is-changing'));
+    setTimeout(()=>changingRows.forEach(row=>row.classList.remove('is-changing')),300);
+    haptic(8);
+  };
+  const updateScheduleDropTarget=drag=>{
+    const under=document.elementFromPoint(drag.lastX,drag.lastY);
+    const row=under&&under.closest('[data-ppl-weekday]');
+    const target=row&&root.contains(row)?Number(row.getAttribute('data-ppl-weekday')):drag.from;
+    root.querySelectorAll('.ppl-schedule-row.drop-target').forEach(item=>item.classList.remove('drop-target'));
+    if(Number.isInteger(target)){
+      drag.target=target;
+      if(target!==drag.from&&row) row.classList.add('drop-target');
+    }
+  };
+  const updateScheduleAutoScroll=drag=>{
+    const scroller=root.querySelector('.app-confirm-card');
+    if(!scroller) return;
+    const rect=scroller.getBoundingClientRect(),edge=54,y=drag.lastY;
+    const direction=y<rect.top+edge?-1:y>rect.bottom-edge?1:0;
+    if(direction&&!scheduleAutoScroll){
+      scheduleAutoScroll=setInterval(()=>{
+        if(scheduleDrag!==drag||drag.settling){stopScheduleAutoScroll();return;}
+        const current=scroller.getBoundingClientRect(),py=drag.lastY;
+        let step=0;
+        if(py<current.top+edge) step=-Math.max(3,Math.ceil((current.top+edge-py)/4));
+        else if(py>current.bottom-edge) step=Math.max(3,Math.ceil((py-(current.bottom-edge))/4));
+        if(step){scroller.scrollTop+=step;updateScheduleDropTarget(drag);}
+        else stopScheduleAutoScroll();
+      },16);
+    }else if(!direction) stopScheduleAutoScroll();
+  };
+  const settleScheduleDrag=(drag,destination,shouldSwap)=>{
+    if(!drag.ghost||!destination){clearDragVisuals();return;}
+    drag.settling=true;
+    stopScheduleAutoScroll();
+    const rect=destination.getBoundingClientRect();
+    const reducedMotion=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const finish=()=>{
+      if(scheduleDrag!==drag) return;
+      if(drag.settleTimer) clearTimeout(drag.settleTimer);
+      drag.settleTimer=null;
+      if(shouldSwap) swapAssignments(drag.from,drag.target);
+      clearDragVisuals();
+    };
+    if(reducedMotion){finish();return;}
+    drag.ghost.style.transition='top .18s cubic-bezier(.22,1,.36,1),left .18s cubic-bezier(.22,1,.36,1),width .18s cubic-bezier(.22,1,.36,1)';
+    requestAnimationFrame(()=>{
+      if(scheduleDrag!==drag) return;
+      drag.ghost.style.top=rect.top+'px';
+      drag.ghost.style.left=rect.left+'px';
+      drag.ghost.style.width=rect.width+'px';
+      drag.ghost.style.height=rect.height+'px';
+    });
+    drag.settleTimer=setTimeout(finish,200);
+  };
+  root.addEventListener('pointerdown',e=>{
+    const handle=e.target.closest('[data-ppl-drag]');
+    if(!handle||e.button>0) return;
+    const from=Number(handle.getAttribute('data-ppl-drag'));
+    if(!Number.isInteger(from)||from<0||from>=assignments.length) return;
+    const sourceRow=root.querySelector('[data-ppl-weekday="'+from+'"]');
+    scheduleDrag={from,target:from,sourceRow,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,moved:false,settling:false,ghost:null};
+    try{handle.setPointerCapture(e.pointerId);}catch(_){}
+    e.preventDefault();
+  });
+  const onSchedulePointerMove=e=>{
+    if(!scheduleDrag||(scheduleDrag.pointerId!==undefined&&e.pointerId!==scheduleDrag.pointerId)) return;
+    const drag=scheduleDrag;
+    if(drag.settling) return;
+    if(!drag.moved&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)>5){
+      drag.moved=true;
+      const rect=drag.sourceRow.getBoundingClientRect();
+      const ghost=drag.sourceRow.cloneNode(true);
+      ghost.classList.remove('is-dragging','drop-target','is-changing');
+      ghost.classList.add('ppl-schedule-drag-ghost');
+      ghost.style.left=rect.left+'px';
+      ghost.style.top=rect.top+'px';
+      ghost.style.width=rect.width+'px';
+      ghost.style.height=rect.height+'px';
+      ghost.style.margin='0';
+      drag.offsetX=e.clientX-rect.left;
+      drag.offsetY=e.clientY-rect.top;
+      drag.ghost=ghost;
+      drag.sourceRow.classList.add('is-dragging');
+      document.body.appendChild(ghost);
+    }
+    if(!drag.moved) return;
+    drag.lastX=e.clientX;
+    drag.lastY=e.clientY;
+    drag.ghost.style.left=(e.clientX-drag.offsetX)+'px';
+    drag.ghost.style.top=(e.clientY-drag.offsetY)+'px';
+    updateScheduleDropTarget(drag);
+    updateScheduleAutoScroll(drag);
+    e.preventDefault();
+  };
+  document.addEventListener('pointermove',onSchedulePointerMove,{passive:false});
+  const finishScheduleDrag=e=>{
+    if(!scheduleDrag||(e&&scheduleDrag.pointerId!==undefined&&e.pointerId!==undefined&&e.pointerId!==scheduleDrag.pointerId)) return;
+    const drag=scheduleDrag;
+    if(drag.settling) return;
+    if(!drag.moved||!drag.ghost){clearDragVisuals();return;}
+    const destination=root.querySelector('[data-ppl-weekday="'+drag.target+'"]')||drag.sourceRow;
+    settleScheduleDrag(drag,destination,drag.target!==drag.from);
+  };
+  document.addEventListener('pointerup',finishScheduleDrag);
+  document.addEventListener('pointercancel',finishScheduleDrag);
+  window.addEventListener('blur',finishScheduleDrag);
+  root.addEventListener('keydown',e=>{
+    const handle=e.target.closest('[data-ppl-drag]');
+    if(!handle||!['ArrowUp','ArrowDown'].includes(e.key)) return;
+    const from=Number(handle.getAttribute('data-ppl-drag'));
+    const target=from+(e.key==='ArrowUp'?-1:1);
+    if(target<0||target>=assignments.length) return;
+    e.preventDefault();
+    swapAssignments(from,target);
+    handle.focus();
+  });
   const close=()=>{
+    clearDragVisuals();
     root.remove();
+    document.removeEventListener('pointermove',onSchedulePointerMove);
+    document.removeEventListener('pointerup',finishScheduleDrag);
+    document.removeEventListener('pointercancel',finishScheduleDrag);
+    window.removeEventListener('blur',finishScheduleDrag);
     document.removeEventListener('keydown',onKey);
   };
   const onKey=e=>{
@@ -4915,7 +5455,7 @@ function openPplScheduleEditor(){
       error.style.display='';
       return;
     }
-    const days=PPL_WEEKDAYS.map((_,index)=>root.querySelector('[data-ppl-weekday="'+index+'"]').value);
+    const days=assignments.slice();
     if(days.some(type=>!PPL_SCHEDULE_TYPES.includes(type))){
       error.textContent='Choose Push, Pull, Legs, or Rest for every weekday.';
       error.style.display='';
@@ -4938,9 +5478,8 @@ function openPplScheduleEditor(){
   });
   root.querySelector('#ppl-schedule-from').addEventListener('change',e=>{
     if(!isValidISODate(e.target.value)) return;
-    pplScheduleForEditorDate(e.target.value).forEach((type,index)=>{
-      root.querySelector('[data-ppl-weekday="'+index+'"]').value=type;
-    });
+    assignments=pplScheduleForEditorDate(e.target.value);
+    refreshAssignments();
     const error=root.querySelector('[data-schedule-error]');
     error.textContent='';
     error.style.display='none';
@@ -5099,6 +5638,7 @@ function openExerciseContextMenu(card, clientX, clientY){
 
   const iconPencil = '<svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
   const iconX = '<svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+  const iconTransfer = '<svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h12l-3-3m3 3-3 3M17 17H5l3 3m-3-3 3-3"/></svg>';
   const iconProgress = '<svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5M4 19h17"/><path d="m7 15 4-4 3 2 6-7"/></svg>';
   const iconHistory = '<svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
   const iconSuggest = '<svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5M4 19h17"/><path d="m7 15 4-4 3 2 6-7"/><path d="M16 5h4v4"/></svg>';
@@ -5119,6 +5659,7 @@ function openExerciseContextMenu(card, clientX, clientY){
     '<button type="button" data-ctx="suggested" role="menuitem">'+iconSuggest+'<span>Suggested weight</span></button>'+
     '<button type="button" data-ctx="units" role="menuitem">'+iconUnits+'<span>Units: '+unitForExercise(id)+'</span></button>'+
     '<button type="button" data-ctx="rename" role="menuitem">'+iconPencil+'<span>Rename</span></button>'+
+    '<button type="button" data-ctx="transfer" role="menuitem">'+iconTransfer+'<span>Transfer</span></button>'+
     '<button type="button" data-ctx="remove" class="danger" role="menuitem">'+iconX+'<span>Remove</span></button>';
 
   menu.addEventListener('click', e=>{
@@ -5139,6 +5680,7 @@ function openExerciseContextMenu(card, clientX, clientY){
       window.scrollTo(0,0);
     }
     else if(act === 'rename') startRenameExercise(exId);
+    else if(act === 'transfer') startTransferExercise(exId);
     else if(act === 'remove') performRemoveExercise(exId);
   });
 
@@ -5251,7 +5793,7 @@ function shouldShowExLongpressTip(){
 function renderExLongpressTipHtml(){
   if(!shouldShowExLongpressTip()) return '';
   return '<div class="ex-tip" id="ex-longpress-tip" role="status">'+
-    '<div style="flex:1"><b>Tip</b>Hold an exercise card for Last session, Suggested weight, Units, View progress, Rename, and Remove.</div>'+
+    '<div style="flex:1"><b>Tip</b>Hold an exercise card for Last session, Suggested weight, Units, View progress, Rename, Transfer, and Remove.</div>'+
     '<button type="button" class="ex-tip-dismiss" data-act="dismiss-ex-tip" aria-label="Dismiss tip">×</button>'+
   '</div>';
 }
@@ -5486,18 +6028,7 @@ document.addEventListener('click', e => {
   else if(a==='cust-move-day'){
     const di = parseInt(btn.getAttribute('data-di'), 10);
     const dir = parseInt(v, 10);
-    const plan = getCustomPlan();
-    const nj = di + dir;
-    if(di<0 || nj<0 || nj>=plan.length) return;
-    const previousSchedule=customScheduleForDate(iso(new Date()));
-    const tmp = plan[di];
-    plan[di] = plan[nj];
-    plan[nj] = tmp;
-    recordCustomScheduleChange(previousSchedule);
-    if(ui.custEditDay === di) ui.custEditDay = nj;
-    else if(ui.custEditDay === nj) ui.custEditDay = di;
-    saveState(0);
-    render(true);
+    moveCustomSplitDay(di,di+dir);
   }
   else if(a==='cust-add-ex'){
     const di = parseInt(btn.getAttribute('data-di'), 10);
@@ -6335,4 +6866,4 @@ window.addEventListener('pagehide', ()=>{
 });
 </script>
 </body>
-</html><!-- END OF FILE — Lift Log version 1.16.0 -->
+</html><!-- END OF FILE — Lift Log version 1.18.2 -->
